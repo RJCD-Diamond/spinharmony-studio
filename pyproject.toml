@@ -13,7 +13,16 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
 ]
 description = "A graphical user interface for the spinharmony package, for analysing magnetic diffuse scattering data"
-dependencies = [] # Add project dependencies here, e.g. ["click", "numpy"]
+dependencies = ["numpy",
+    "scipy",
+    "pydantic",
+    "httpx",
+    "matplotlib",
+    "gitpython",
+    "stomp.py",
+    "pyyaml",
+    "h5py",
+    "pyqt6"] # Add project dependencies here, e.g. ["click", "numpy"]
 dynamic = ["version"]
 license.file = "LICENSE"
 readme = "README.md"
