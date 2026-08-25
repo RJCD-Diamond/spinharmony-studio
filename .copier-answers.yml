@@ -1,0 +1,20 @@
+# Changes here will be overwritten by Copier
+_commit: 5.4.0
+_src_path: https://github.com/DiamondLightSource/python-copier-template.git
+author_email: richard.dixey@diamond.ac.uk
+author_name: Richard Dixey
+component_lifecycle: experimental
+component_owner: group:default/data-analysis
+component_type: application
+description: A graphical user interface for the spinharmony package, for analysing
+    magnetic diffuse scattering data
+distribution_name: spinharmony-studio
+docker: true
+docs_type: README
+git_platform: github.com
+github_org: DiamondLightSource
+package_name: spinharmony_studio
+pypi: true
+repo_name: spinharmony-studio
+strict_typing: false
+type_checker: pyright
