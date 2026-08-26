@@ -22,6 +22,7 @@ dependencies = [
     "h5py",
     "mendeleev",
     "PyCifRW",
+    "xrpd-toolbox",
     "pyqt6",
 ] # Add project dependencies here, e.g. ["click", "numpy"]
 dynamic = ["version"]
