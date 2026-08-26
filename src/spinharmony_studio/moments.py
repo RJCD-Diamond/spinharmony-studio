@@ -4,6 +4,11 @@ from functools import cached_property
 import mendeleev
 from pydantic import BaseModel, computed_field
 
+from spinharmony_studio.form_factors import (
+    J0_FORM_FACTOR_COEFFICIENTS,
+    J2_FORM_FACTOR_COEFFICIENTS,
+)
+
 L_LETTERS = "SPDFGHIKLMN"  # J is skipped by spectroscopic convention
 SHELL_L = {"s": 0, "p": 1, "d": 2, "f": 3, "g": 4}
 
@@ -205,13 +210,35 @@ class MagneticIon(BaseModel):
     element: str
     charge: int | None
 
+    def signed_charge(self):
+        if self.charge is not None:
+            return f"{abs(self.charge)}{'+' if self.charge >= 0 else '-'}"
+        else:
+            return "0+"
+
     @computed_field
     @cached_property
     def magnetic_properties(self) -> MagneticProperties:
 
         return generate_magnetic_quantum_numbers(self.element, self.charge)
 
+    def get_j0_form_factor(self):
+
+        return J0_FORM_FACTOR_COEFFICIENTS[f"{self.element}{self.signed_charge()}"]
+
+    def get_j2_form_factor(self):
+
+        return J2_FORM_FACTOR_COEFFICIENTS[f"{self.element}{self.signed_charge()}"]
+
 
 if __name__ == "__main__":
     for el in ["La", "Ce", "Pr", "Nd", "Pm", "Sm", "Eu", "Gd", "Tb", "Ho", "Dy"]:
-        print(MagneticIon(element=el, charge=3).model_dump())
+        ion = MagneticIon(element=el, charge=3)
+        try:
+            print(ion.get_j0_form_factor())
+            print(ion.get_j2_form_factor())
+
+        except Exception:
+            pass
+
+        print(ion.model_dump())
