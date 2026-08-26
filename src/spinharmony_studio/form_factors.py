@@ -9,12 +9,14 @@
 
 Each entry is a 7-tuple of the analytical-approximation coefficients
 (A, a, B, b, C, c, D) used in FORM_FACTOR_J0 -- the same order as
-FORM_FACTOR_FIELDS in models.py. Build a FormFactorCoefficients from
+FORM_FACTOR_FIELDS in config.py. Build a FormFactorCoefficients from
 an entry with:
 
     coeffs = dict(zip(FORM_FACTOR_FIELDS, FORM_FACTOR_COEFFICIENTS[ion]))
     FormFactorCoefficients(**coeffs)
 """
+
+FORM_FACTOR_FIELDS = ("A", "a", "B", "b", "C", "c", "D")
 
 # (A, a, B, b, C, c, D)
 
