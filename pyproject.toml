@@ -13,16 +13,16 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
 ]
 description = "A graphical user interface for the spinharmony package, for analysing magnetic diffuse scattering data"
-dependencies = ["numpy",
+dependencies = [
+    "numpy",
     "scipy",
     "pydantic",
-    "httpx",
     "matplotlib",
-    "gitpython",
-    "stomp.py",
     "pyyaml",
     "h5py",
-    "pyqt6"] # Add project dependencies here, e.g. ["click", "numpy"]
+    "mendeleev",
+    "pyqt6",
+] # Add project dependencies here, e.g. ["click", "numpy"]
 dynamic = ["version"]
 license.file = "LICENSE"
 readme = "README.md"
@@ -54,7 +54,7 @@ version_file = "src/spinharmony_studio/_version.py"
 
 [tool.pyright]
 typeCheckingMode = "standard"
-reportMissingImports = false # Ignore missing stubs in imported modules
+reportMissingImports = false  # Ignore missing stubs in imported modules
 
 [tool.pytest.ini_options]
 # Run pytest with all our checkers, and don't spam us with massive tracebacks on error

@@ -324,6 +324,10 @@ class SpinvertConfig(BaseModel):
 
     def to_file(self, path: str | Path) -> None:
         """Write this config out as a Spinvert [title]_config.txt file."""
+
+        if not str(path).endswith("_config.txt"):
+            raise ValueError("Spinvert config files must be named [title]_config.txt")
+
         Path(path).write_text(self.to_text())
 
 
@@ -341,8 +345,7 @@ if __name__ == "__main__":
         BOX=(6, 6, 6),
         RUNS=10,
         SCALE="REFINE",
-        TEMP_SUBTRACT=True,
     )
     print(example.model_dump_json(indent=2, by_alias=True))
 
-    example.to_file("/workspaces/spinharmony_studio/src/example.txt")
+    example.to_file("/workspaces/spinharmony_studio/src/example_config.txt")

@@ -1,6 +1,8 @@
 """
+
 # Taken from P.J. Brown - Institut Laue Langevin, Grenoble, FRANCE. e-mail: brown@ill.fr
 # https://www.ill.eu/sites/ccsl/ffacts/ffachtml.html
+
 """
 
 """Magnetic <j0> form-factor coefficients, keyed by ion label (e.g. "Fe3+").
@@ -120,7 +122,7 @@ J0_FORM_FACTOR_COEFFICIENTS: dict[str, tuple] = {
 
 NOTE: the source data listed "V0" twice with different coefficients:
     (3.8099, 21.3471, 2.3295, 7.4089, 0.4333, 2.6324, 0.0015)  <- kept as V0+
-    (3.8989, 20.4087, 2.2151, 7.0842, 0.3921, 2.5401, 0.0014)  <- NOT included,
+    (3.8989, 20.4087, 2.2151, 7.0842, 0.3921, 2.5401, 0.0014)  <- V0+_2,
 """
 
 # (A, a, B, b, C, c, D)
@@ -134,6 +136,7 @@ J2_FORM_FACTOR_COEFFICIENTS: dict[str, tuple] = {
     "Ti2+": (4.3107, 18.3484, 2.096, 6.797, 0.2984, 2.5476, 0.0007),
     "Ti3+": (3.3717, 14.4441, 1.8258, 5.7126, 0.247, 2.2654, 0.0005),
     "V0+": (3.8099, 21.3471, 2.3295, 7.4089, 0.4333, 2.6324, 0.0015),
+    "V0+_2": (3.8989, 20.4087, 2.2151, 7.0842, 0.3921, 2.5401, 0.0014),
     "V1+": (4.7474, 23.3226, 2.3609, 7.8082, 0.4105, 2.7063, 0.0014),
     "V2+": (3.4386, 16.5303, 1.9638, 6.1415, 0.2997, 2.2669, 0.0009),
     "V3+": (2.3005, 14.6821, 2.0364, 6.1304, 0.4099, 2.3815, 0.0014),
