@@ -263,9 +263,9 @@ class MagneticIon(BaseModel):
                 2 * spin_quantum_number + angular_momentum_quantum_number
             )
 
-        elif "Lanthanides" or "Actinides":
-            lande_g_factor = self.magnetic_properties.lande_g_factor
-
+        elif (element_type == ("Lanthanides" or "Actinides")) and (
+            lande_g_factor != 0.0
+        ):
             return (2 - lande_g_factor) / lande_g_factor
         else:
             return 0.0
@@ -286,11 +286,8 @@ class MagneticIon(BaseModel):
 
 
 if __name__ == "__main__":
-    for el in ["La", "Ce", "Pr", "Nd", "Pm", "Sm", "Eu", "Gd", "Tb", "Ho", "Dy"]:
+    for el in ["Co", "La", "Ce", "Pr", "Nd", "Pm", "Sm", "Eu", "Gd", "Tb", "Ho", "Dy"]:
         ion = MagneticIon(element=el, charge=3)
-        try:
-            print(ion.model_dump())
-            print(ion.get_c2())
 
-        except Exception:
-            pass
+        print(ion.model_dump())
+        print(ion.get_c2(quenched=False))
