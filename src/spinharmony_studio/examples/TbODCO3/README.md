@@ -2,7 +2,7 @@
 
 The data contained in this example was published in the following work:
 
-Ferromagnetic Ising chains in frustrated LnODCO3: the influence of magnetic structure in magnetocaloric frameworks
+# Ferromagnetic Ising chains in frustrated LnODCO3: the influence of magnetic structure in magnetocaloric frameworks
 
 Richard J. C. Dixey, Gavin B. G. Stenning, Pascal Manuel, Fabio Orlandi and
 Paul J. Saines
