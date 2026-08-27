@@ -5,7 +5,31 @@ FROM ghcr.io/diamondlightsource/ubuntu-devcontainer:resolute AS developer
 # Add any system dependencies for the developer/build environment here
 RUN apt-get update -y && apt-get install -y --no-install-recommends \
     graphviz \
-    && apt-get dist-clean
+    && apt-get dist-clean 
+
+RUN apt-get update && apt-get install ffmpeg libsm6 libxext6 libgl1 libegl1 -y
+RUN apt-get update && apt-get install -y \
+    libx11-xcb-dev \
+    libglu1-mesa-dev \
+    libxrender-dev \
+    libxi-dev \
+    libxkbcommon-dev \
+    libxkbcommon-x11-dev \
+    libegl1 \
+    libxcb-cursor0 -y
+
+RUN apt-get update && apt-get install -y \
+    libxcb-icccm4 \
+    libxcb-keysyms1 \
+    libxcb-render-util0 \
+    libxcb-xinerama0 \
+    libxcb-xkb1 \
+    libxkbcommon-x11-0
+
+RUN apt-get install fonts-noto-color-emoji -y
+
+RUN apt-get install -y gcc gfortran
+
 
 # The build stage installs the context into the venv
 FROM developer AS build

@@ -179,7 +179,7 @@ class MagneticProperties(BaseModel):
 
     @computed_field
     @cached_property
-    def g_factor(self) -> float:
+    def lande_g_factor(self) -> float:
         return round(lande_g_factor(self.S, self.L, self.J), 2)
 
     @computed_field
@@ -193,7 +193,7 @@ class MagneticProperties(BaseModel):
         return int(self.S * 2)
 
 
-def generate_magnetic_quantum_numbers(
+def generate_magnetic_properties(
     element: str, charge: int | None = None
 ) -> MagneticProperties:
 
@@ -211,22 +211,76 @@ class MagneticIon(BaseModel):
     charge: int | None
 
     def signed_charge(self):
+        """Returns the magnetic ion in the format Cr3+ or Tb3+ or even Fe0+"""
         if self.charge is not None:
             return f"{abs(self.charge)}{'+' if self.charge >= 0 else '-'}"
         else:
             return "0+"
 
+    def get_element_type(self) -> str:
+        """Returns the type of the element eg:
+        Fe	Iron	Transition metals	d
+        La	Lanthanum	Lanthanides	d
+        U	Uranium	Actinides	f
+        """
+        element_inst = mendeleev.element(self.element)
+        # print(element_inst.block)  # 'd'
+        return element_inst.series  # eg. 'Transition metals'
+
+    def get_c2(self, quenched: bool | None = None) -> float:
+        """
+        C2 is the ratio of the orbital moment to the total moment
+
+        The magnetic form factor is then given by f(Q) = j0(Q) + C2j2(Q),
+        where C2 = Lz /(2Sz + Lz )
+
+        For the lanthanide series, C2 = (2−gJ )/gJ,  where gJ is the
+        Landé g-factor.
+
+        For transition metals with unquenched orbital momentum,
+        an eﬀective g-factor geﬀ may be defined
+        by geﬀSz = 2Sz + Lz , from which C2 = (geﬀ−2)/geﬀ
+        (note the diﬀerence in sign compared to the lanthanide case).
+
+        The default value of C2 is 0.
+        """
+
+        element_type = self.get_element_type()
+        spin_quantum_number = self.magnetic_properties.S
+        angular_momentum_quantum_number = self.magnetic_properties.L
+
+        lande_g_factor = self.magnetic_properties.lande_g_factor
+
+        if quenched is None and (element_type == "Transition metals"):
+            raise ValueError(
+                "For transition metals we must know whether the ion is quenched or not!"
+            )
+
+        if (element_type == "Transition metals") and quenched:
+            return 0.0
+        elif (element_type == "Transition metals") and not quenched:
+            return angular_momentum_quantum_number / (
+                2 * spin_quantum_number + angular_momentum_quantum_number
+            )
+
+        elif "Lanthanides" or "Actinides":
+            lande_g_factor = self.magnetic_properties.lande_g_factor
+
+            return (2 - lande_g_factor) / lande_g_factor
+        else:
+            return 0.0
+
     @computed_field
     @cached_property
     def magnetic_properties(self) -> MagneticProperties:
 
-        return generate_magnetic_quantum_numbers(self.element, self.charge)
+        return generate_magnetic_properties(self.element, self.charge)
 
-    def get_j0_form_factor(self):
+    def get_j0_form_factor(self) -> tuple:
 
         return J0_FORM_FACTOR_COEFFICIENTS[f"{self.element}{self.signed_charge()}"]
 
-    def get_j2_form_factor(self):
+    def get_j2_form_factor(self) -> tuple:
 
         return J2_FORM_FACTOR_COEFFICIENTS[f"{self.element}{self.signed_charge()}"]
 
@@ -235,10 +289,8 @@ if __name__ == "__main__":
     for el in ["La", "Ce", "Pr", "Nd", "Pm", "Sm", "Eu", "Gd", "Tb", "Ho", "Dy"]:
         ion = MagneticIon(element=el, charge=3)
         try:
-            print(ion.get_j0_form_factor())
-            print(ion.get_j2_form_factor())
+            print(ion.model_dump())
+            print(ion.get_c2())
 
         except Exception:
             pass
-
-        print(ion.model_dump())
