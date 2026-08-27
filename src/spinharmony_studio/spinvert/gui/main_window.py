@@ -63,14 +63,15 @@ class MainWindow(QMainWindow):
         outer_layout = QVBoxLayout(central)
         outer_layout.addWidget(self._build_program_group())
 
-        splitter = QSplitter()
-        outer_layout.addWidget(splitter, stretch=1)
+        self.main_splitter = QSplitter()
+        self.main_splitter.setChildrenCollapsible(True)
+        outer_layout.addWidget(self.main_splitter, stretch=1)
 
         self.config_form = ConfigFormWidget()
-        form_scroll = QScrollArea()
-        form_scroll.setWidgetResizable(True)
-        form_scroll.setWidget(self.config_form)
-        splitter.addWidget(form_scroll)
+        self.form_scroll = QScrollArea()
+        self.form_scroll.setWidgetResizable(True)
+        self.form_scroll.setWidget(self.config_form)
+        self.main_splitter.addWidget(self.form_scroll)
 
         right_splitter = QSplitter()
         right_splitter.setOrientation(Qt.Orientation.Vertical)
@@ -81,9 +82,12 @@ class MainWindow(QMainWindow):
         right_splitter.setStretchFactor(0, 3)
         right_splitter.setStretchFactor(1, 2)
 
-        splitter.addWidget(right_splitter)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 2)
+        self.main_splitter.addWidget(right_splitter)
+        # Config panel and plot each take half the window by default.
+        self.main_splitter.setStretchFactor(0, 1)
+        self.main_splitter.setStretchFactor(1, 1)
+        self._did_initial_split = False
+        self._saved_splitter_sizes: list[int] | None = None
 
         self.status_label = QLabel("No run in progress.")
         status_bar = self.statusBar()
@@ -94,6 +98,25 @@ class MainWindow(QMainWindow):
         self.timer.setInterval(POLL_INTERVAL_MS)
         self.timer.timeout.connect(self._poll_files)
         self.timer.start()
+
+    # --- layout ----------------------------------------------------------
+
+    def showEvent(self, a0) -> None:  # noqa: N802 (Qt override)
+        super().showEvent(a0)
+        if not self._did_initial_split:
+            self._did_initial_split = True
+            width = self.main_splitter.width()
+            if width > 0:
+                self.main_splitter.setSizes([width // 2, width - width // 2])
+
+    def _toggle_config_panel(self, visible: bool) -> None:
+        if visible:
+            self.form_scroll.setVisible(True)
+            if self._saved_splitter_sizes is not None:
+                self.main_splitter.setSizes(self._saved_splitter_sizes)
+        else:
+            self._saved_splitter_sizes = self.main_splitter.sizes()
+            self.form_scroll.setVisible(False)
 
     # --- menu bar --------------------------------------------------------
 
@@ -120,6 +143,15 @@ class MainWindow(QMainWindow):
         self._add_action(edit_menu, "&Copy output", self._copy_log, "Ctrl+Shift+C")
         self._add_action(edit_menu, "Clear &output", self._clear_log)
 
+        view_menu = menu_bar.addMenu("&View")
+        assert view_menu is not None
+        self.toggle_config_action = QAction("Show &configuration panel", self)
+        self.toggle_config_action.setCheckable(True)
+        self.toggle_config_action.setChecked(True)
+        self.toggle_config_action.setShortcut("F9")
+        self.toggle_config_action.toggled.connect(self._toggle_config_panel)
+        view_menu.addAction(self.toggle_config_action)
+
         help_menu = menu_bar.addMenu("&Help")
         assert help_menu is not None
         self._add_action(help_menu, "&About Spinvert Studio", self._show_about)
@@ -145,8 +177,8 @@ class MainWindow(QMainWindow):
             "About Spinvert Studio",
             "Spinvert Studio\n\n"
             "A GUI front-end for building Spinvert config files, launching the "
-            "spinvert command-line program, and viewing its fit, difference, "
-            "and chi^2 output live.",
+            "spinvert command-line program, and viewing its fit and difference "
+            "output live.",
         )
 
     # --- program output -------------------------------------------------

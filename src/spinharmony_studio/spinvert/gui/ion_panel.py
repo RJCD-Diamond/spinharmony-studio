@@ -1,4 +1,4 @@
-"""Magnetic-ion selector: drives FormFactorCoefficients and SCALE from
+"""Magnetic-ion selector: drives FormFactorCoefficients, C2 and SCALE from
 MagneticIon, per the J0/J2 form-factor tables in form_factors.py.
 """
 
@@ -7,7 +7,9 @@ import re
 
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QComboBox,
+    QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -57,9 +59,10 @@ def _coefficients_match(model: FormFactorCoefficients, values: tuple) -> bool:
 
 
 class IonPanel(QGroupBox):
-    """Lets the user pick a magnetic ion. The j0 (and, when available, j2)
-    form-factor coefficients follow the selection automatically; the effective
-    moment can be pushed into SCALE on demand."""
+    """Lets the user pick a magnetic ion. The j0/j2 form-factor coefficients and
+    the C2 orbital/total moment ratio follow the selection (and the "orbital
+    moment quenched" checkbox) automatically; the effective moment can be pushed
+    into SCALE on demand."""
 
     ion_changed = pyqtSignal()
     apply_scale_requested = pyqtSignal(float)
@@ -71,32 +74,46 @@ class IonPanel(QGroupBox):
         self.ion_combo.addItems(_sorted_ion_labels())
         self.ion_combo.currentTextChanged.connect(self._recompute)
 
+        self.quenched_checkbox = QCheckBox("Orbital moment quenched")
+        self.quenched_checkbox.setChecked(True)
+        self.quenched_checkbox.setToolTip(
+            "Transition metals only: quenched -> C2 = 0 (j0 only, spin-only "
+            "moment); unquenched -> C2 = L / (2S + L) and the j2 term is added. "
+            "Lanthanides and actinides are always unquenched."
+        )
+        self.quenched_checkbox.toggled.connect(self._recompute)
+
         self.term_symbol_label = QLabel("-")
         self.s_l_j_label = QLabel("-")
         self.g_factor_label = QLabel("-")
         self.mu_spin_only_label = QLabel("-")
         self.mu_spin_orbit_label = QLabel("-")
+        self.c2_label = QLabel("-")
+
+        self.uiso_box = QDoubleSpinBox()
+        self.uiso_box.setRange(0, 1e6)
+        self.uiso_box.setDecimals(6)
 
         form = QFormLayout()
         form.addRow("Ion", self.ion_combo)
+        form.addRow("", self.quenched_checkbox)
         form.addRow("Term symbol", self.term_symbol_label)
         form.addRow("S, L, J", self.s_l_j_label)
         form.addRow("g factor", self.g_factor_label)
         form.addRow("mu (spin-only)", self.mu_spin_only_label)
         form.addRow("mu (spin-orbit)", self.mu_spin_orbit_label)
+        form.addRow("C2", self.c2_label)
+        form.addRow("UISO", self.uiso_box)
 
-        self.apply_scale_spin_only_button = QPushButton("Spin-only mu^2 as SCALE")
-        self.apply_scale_spin_orbit_button = QPushButton("Spin-orbit mu^2 as SCALE")
-        self.apply_scale_spin_only_button.clicked.connect(
-            lambda: self._emit_scale(spin_only=True)
+        self.apply_scale_button = QPushButton("Use mu^2 as SCALE")
+        self.apply_scale_button.setToolTip(
+            "Set SCALE to the squared effective moment: spin-only when quenched, "
+            "spin-orbit (Lande) when unquenched. SCALE stays editable afterwards."
         )
-        self.apply_scale_spin_orbit_button.clicked.connect(
-            lambda: self._emit_scale(spin_only=False)
-        )
+        self.apply_scale_button.clicked.connect(self._emit_scale)
 
         buttons = QHBoxLayout()
-        buttons.addWidget(self.apply_scale_spin_only_button)
-        buttons.addWidget(self.apply_scale_spin_orbit_button)
+        buttons.addWidget(self.apply_scale_button)
         buttons.addStretch()
 
         outer = QFormLayout()
@@ -112,6 +129,26 @@ class IonPanel(QGroupBox):
             return None
         element, charge = _parse_ion_label(label)
         return MagneticIon(element=element, charge=charge)
+
+    def is_quenched(self) -> bool:
+        return self.quenched_checkbox.isChecked()
+
+    def current_c2(self) -> float:
+        ion = self.current_ion()
+        if ion is None:
+            return 0.0
+        try:
+            return ion.get_c2(quenched=self.quenched_checkbox.isChecked())
+        except Exception:
+            return 0.0
+
+    def match_quenched_to_c2(self, target_c2: float) -> None:
+        """When loading a config, choose the quenched flag that reproduces the
+        stored C2. Only meaningful for transition metals; a no-op otherwise."""
+        ion = self.current_ion()
+        if ion is None or not self._is_transition_metal(ion):
+            return
+        self.quenched_checkbox.setChecked(target_c2 == 0)
 
     def select_matching_ion(
         self,
@@ -166,12 +203,31 @@ class IonPanel(QGroupBox):
         if ion is None:
             return
 
+        # Lanthanides / actinides are never quenched; lock the checkbox off.
+        # A transition metal defaults to quenched (the usual 3d assumption);
+        # moving between two transition metals preserves the user's choice.
+        is_transition_metal = self._is_transition_metal(ion)
+        was_enabled = self.quenched_checkbox.isEnabled()
+        self.quenched_checkbox.blockSignals(True)
+        self.quenched_checkbox.setEnabled(is_transition_metal)
+        if not is_transition_metal:
+            self.quenched_checkbox.setChecked(False)
+        elif not was_enabled:
+            self.quenched_checkbox.setChecked(True)
+        self.quenched_checkbox.blockSignals(False)
+
         props = ion.magnetic_properties
         self.term_symbol_label.setText(props.term_symbol)
         self.s_l_j_label.setText(f"{props.S}, {props.L}, {props.J}")
         self.g_factor_label.setText(str(props.lande_g_factor))
         self.mu_spin_only_label.setText(f"{props.mu_spin_only} uB")
         self.mu_spin_orbit_label.setText(f"{props.mu_spin_orbit} uB")
+
+        c2 = self.current_c2()
+        if c2 != 0.0 and not self._has_j2(ion):
+            self.c2_label.setText(f"{c2:.6g}  (no J2 table for this ion!)")
+        else:
+            self.c2_label.setText(f"{c2:.6g}")
 
         self.ion_changed.emit()
 
@@ -183,10 +239,21 @@ class IonPanel(QGroupBox):
             return False
         return True
 
-    def _emit_scale(self, *, spin_only: bool) -> None:
+    @staticmethod
+    def _is_transition_metal(ion: MagneticIon) -> bool:
+        try:
+            return ion.get_element_type() == "Transition metals"
+        except Exception:
+            return False
+
+    def _emit_scale(self) -> None:
         ion = self.current_ion()
         if ion is None:
             return
         props = ion.magnetic_properties
-        moment = props.mu_spin_only if spin_only else props.mu_spin_orbit
+        moment = (
+            props.mu_spin_only
+            if self.quenched_checkbox.isChecked()
+            else props.mu_spin_orbit
+        )
         self.apply_scale_requested.emit(moment * moment)

@@ -42,13 +42,10 @@ class ConfigFormWidget(QWidget):
         layout.addWidget(self._build_cell_group())
         layout.addWidget(self._build_sites_group())
         layout.addWidget(self._build_spin_group())
-        layout.addWidget(self._build_ion_and_form_factor_group())
+        layout.addWidget(self._build_ion_group())
         layout.addWidget(self._build_refinement_group())
         layout.addWidget(self._build_scale_and_background_group())
-        layout.addWidget(self._build_misc_group())
         layout.addStretch()
-
-        self._on_include_j2_toggled(False)
 
     # --- construction helpers -------------------------------------------------
 
@@ -132,26 +129,19 @@ class ConfigFormWidget(QWidget):
         self._on_spin_dimension_changed()
         return group
 
-    def _build_ion_and_form_factor_group(self) -> QGroupBox:
-        group = QGroupBox("Form factor")
-        layout = QVBoxLayout(group)
-
-        # The j0/j2 coefficients are not edited by hand: they follow the
-        # magnetic ion selected in the IonPanel.
+    def _build_ion_group(self) -> QGroupBox:
+        # The j0/j2 coefficients and C2 are not edited by hand: they follow the
+        # magnetic ion (and its "orbital moment quenched" checkbox) in IonPanel.
         self._j0_coefficients: FormFactorCoefficients | None = None
         self._j2_coefficients: FormFactorCoefficients | None = None
+        self._c2: float = 0.0
 
         self.ion_panel = IonPanel()
         self.ion_panel.ion_changed.connect(self._on_ion_changed)
         self.ion_panel.apply_scale_requested.connect(self._set_scale_from_ion)
-        layout.addWidget(self.ion_panel)
-
-        self.include_j2_checkbox = QCheckBox("Use J2 form factor (needed if C2 != 0)")
-        self.include_j2_checkbox.toggled.connect(self._on_include_j2_toggled)
-        layout.addWidget(self.include_j2_checkbox)
 
         self._on_ion_changed()
-        return group
+        return self.ion_panel
 
     def _build_refinement_group(self) -> QGroupBox:
         group = QGroupBox("Refinement")
@@ -190,7 +180,7 @@ class ConfigFormWidget(QWidget):
         return group
 
     def _build_scale_and_background_group(self) -> QGroupBox:
-        group = QGroupBox("Scale / background")
+        group = QGroupBox("Scale / background / data")
         form = QFormLayout(group)
 
         self.scale_mode_combo = QComboBox()
@@ -199,7 +189,6 @@ class ConfigFormWidget(QWidget):
         self.scale_value_box.setRange(-1e9, 1e9)
         self.scale_value_box.setDecimals(6)
         self.scale_mode_combo.currentTextChanged.connect(self._on_scale_mode_changed)
-        self._on_scale_mode_changed()
 
         form.addRow("SCALE", self.scale_mode_combo)
         form.addRow("SCALE value", self.scale_value_box)
@@ -217,32 +206,18 @@ class ConfigFormWidget(QWidget):
         self.background_refine_checkbox.toggled.connect(
             self._on_background_type_changed
         )
-        self._on_background_type_changed()
 
         form.addRow("Background type", self.background_type_combo)
         form.addRow("", self.background_refine_checkbox)
         form.addRow("Background value", self.background_value_box)
-        return group
-
-    def _build_misc_group(self) -> QGroupBox:
-        group = QGroupBox("Other")
-        form = QFormLayout(group)
-
-        self.c2_box = QDoubleSpinBox()
-        self.c2_box.setRange(-1e6, 1e6)
-        self.c2_box.setDecimals(6)
-
-        self.uiso_box = QDoubleSpinBox()
-        self.uiso_box.setRange(0, 1e6)
-        self.uiso_box.setDecimals(6)
 
         self.temp_subtract_checkbox = QCheckBox(
             "TEMP_SUBTRACT (requires a fixed SCALE)"
         )
-
-        form.addRow("C2", self.c2_box)
-        form.addRow("UISO", self.uiso_box)
         form.addRow("", self.temp_subtract_checkbox)
+
+        self._on_scale_mode_changed()
+        self._on_background_type_changed()
         return group
 
     # --- interactivity ---------------------------------------------------------
@@ -258,28 +233,22 @@ class ConfigFormWidget(QWidget):
             self._sync_anisotropy_rows()
 
     def _on_ion_changed(self) -> None:
-        """The selected ion sets the j0 coefficients (and j2 when available)."""
+        """The selected ion (and its quenched flag) sets the j0 coefficients,
+        C2, and the j2 coefficients (added only when C2 is non-zero)."""
         self._j0_coefficients = self.ion_panel.current_j0()
-
-        has_j2 = self.ion_panel.has_j2()
-        self.include_j2_checkbox.setEnabled(has_j2)
-        if not has_j2 and self.include_j2_checkbox.isChecked():
-            self.include_j2_checkbox.setChecked(False)  # fires _on_include_j2_toggled
-
-        if self.include_j2_checkbox.isChecked():
-            self._j2_coefficients = self.ion_panel.current_j2()
-
-    def _on_include_j2_toggled(self, checked: bool) -> None:
-        self.c2_box.setEnabled(checked)
-        if checked:
+        self._c2 = self.ion_panel.current_c2()
+        if self._c2 != 0.0 and self.ion_panel.has_j2():
             self._j2_coefficients = self.ion_panel.current_j2()
         else:
             self._j2_coefficients = None
-            self.c2_box.setValue(0.0)
 
     def _on_scale_mode_changed(self) -> None:
         is_fixed = self.scale_mode_combo.currentText() == "Fixed value"
         self.scale_value_box.setEnabled(is_fixed)
+        # TEMP_SUBTRACT needs a fixed SCALE (see SpinvertConfig validator).
+        self.temp_subtract_checkbox.setEnabled(is_fixed)
+        if not is_fixed:
+            self.temp_subtract_checkbox.setChecked(False)
 
     def _on_background_type_changed(self) -> None:
         has_background = self.background_type_combo.currentText() != "None"
@@ -317,12 +286,13 @@ class ConfigFormWidget(QWidget):
         if form_factor_j0 is None:
             raise ValueError("Select a magnetic ion to set the form factor.")
         form_factor_j2 = None
-        if self.include_j2_checkbox.isChecked():
+        if self._c2 != 0.0:
             form_factor_j2 = self._j2_coefficients
             if form_factor_j2 is None:
                 raise ValueError(
-                    "The selected ion has no J2 form factor; "
-                    "uncheck 'Use J2 form factor'."
+                    "The selected ion has an unquenched orbital moment "
+                    f"(C2 = {self._c2:.4g}) but no tabulated J2 form factor. "
+                    "Mark the ion as quenched or choose a different ion."
                 )
 
         scale: RefineOrFloat
@@ -360,8 +330,8 @@ class ConfigFormWidget(QWidget):
             SCALE=scale,
             FLAT_BACKGROUND=flat_background,
             LINEAR_BACKGROUND=linear_background,
-            C2=self.c2_box.value() if self.include_j2_checkbox.isChecked() else 0.0,
-            UISO=self.uiso_box.value(),
+            C2=self._c2,
+            UISO=self.ion_panel.uiso_box.value(),
             TEMP_SUBTRACT=self.temp_subtract_checkbox.isChecked(),
         )
 
@@ -382,14 +352,16 @@ class ConfigFormWidget(QWidget):
             self.anisotropy_table.set_vectors(config.anisotropy)
 
         # Recover the magnetic ion from the loaded form factor(s) so the
-        # IonPanel reflects the file. The coefficients themselves are still
-        # taken verbatim from the config, so an unrecognised (e.g. hand-edited)
-        # form factor still round-trips.
+        # IonPanel reflects the file, and pick the quenched flag that reproduces
+        # the stored C2. The coefficients and C2 are then taken verbatim from
+        # the config, so an unrecognised (e.g. hand-edited) form factor still
+        # round-trips.
         self.ion_panel.select_matching_ion(config.form_factor_j0, config.form_factor_j2)
-        self.include_j2_checkbox.setEnabled(True)
-        self.include_j2_checkbox.setChecked(config.form_factor_j2 is not None)
+        self.ion_panel.match_quenched_to_c2(config.c2)
         self._j0_coefficients = config.form_factor_j0
         self._j2_coefficients = config.form_factor_j2
+        self._c2 = config.c2
+        self.ion_panel.uiso_box.setValue(config.uiso)
 
         self.weight_box.setValue(config.weight)
         self.moves_box.setValue(config.moves)
@@ -413,8 +385,6 @@ class ConfigFormWidget(QWidget):
         else:
             self.background_type_combo.setCurrentText("None")
 
-        self.c2_box.setValue(config.c2)
-        self.uiso_box.setValue(config.uiso)
         self.temp_subtract_checkbox.setChecked(config.temp_subtract)
 
     def _set_background_mode_and_value(self, value: RefineOrFloat) -> None:

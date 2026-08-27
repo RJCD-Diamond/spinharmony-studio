@@ -259,13 +259,12 @@ class MagneticIon(BaseModel):
         if (element_type == "Transition metals") and quenched:
             return 0.0
         elif (element_type == "Transition metals") and not quenched:
-            return angular_momentum_quantum_number / (
-                2 * spin_quantum_number + angular_momentum_quantum_number
-            )
+            total = 2 * spin_quantum_number + angular_momentum_quantum_number
+            if total == 0:
+                return 0.0
+            return angular_momentum_quantum_number / total
 
-        elif (element_type == ("Lanthanides" or "Actinides")) and (
-            lande_g_factor != 0.0
-        ):
+        elif (element_type in ("Lanthanides", "Actinides")) and (lande_g_factor != 0.0):
             return (2 - lande_g_factor) / lande_g_factor
         else:
             return 0.0
