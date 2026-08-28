@@ -13,6 +13,7 @@ __pycache__/
 *_fit_*.txt
 *_spins_*.txt
 *_form_fac_sq*.txt
+*_scf*.txt
 *programs/
 
 # Distribution / packaging
