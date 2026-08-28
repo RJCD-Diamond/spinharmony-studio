@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMessageBox,
+    QPushButton,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -190,12 +191,25 @@ class ConfigFormWidget(QWidget):
         self.scale_value_box.setDecimals(6)
         self.scale_mode_combo.currentTextChanged.connect(self._on_scale_mode_changed)
 
+        self.apply_scale_button = QPushButton("Use mu^2 as SCALE")
+        self.apply_scale_button.setToolTip(
+            "Set SCALE to the squared effective moment of the selected magnetic "
+            "ion (spin-only when quenched, spin-orbit otherwise)."
+        )
+        self.apply_scale_button.clicked.connect(self.ion_panel.emit_scale)
+        scale_value_row = QHBoxLayout()
+        scale_value_row.setContentsMargins(0, 0, 0, 0)
+        scale_value_row.addWidget(self.scale_value_box, stretch=1)
+        scale_value_row.addWidget(self.apply_scale_button)
+        scale_value_row_widget = QWidget()
+        scale_value_row_widget.setLayout(scale_value_row)
+
         form.addRow("SCALE", self.scale_mode_combo)
-        form.addRow("SCALE value", self.scale_value_box)
+        form.addRow("SCALE value", scale_value_row_widget)
 
         self.background_type_combo = QComboBox()
         self.background_type_combo.addItems(_BACKGROUND_TYPES)
-        self.background_refine_checkbox = QCheckBox("Refine background")
+        self.background_refine_checkbox = QCheckBox()
         self.background_refine_checkbox.setChecked(True)
         self.background_value_box = QDoubleSpinBox()
         self.background_value_box.setRange(-1e9, 1e9)
@@ -208,13 +222,12 @@ class ConfigFormWidget(QWidget):
         )
 
         form.addRow("Background type", self.background_type_combo)
-        form.addRow("", self.background_refine_checkbox)
+        form.addRow("Refine background", self.background_refine_checkbox)
         form.addRow("Background value", self.background_value_box)
 
-        self.temp_subtract_checkbox = QCheckBox(
-            "TEMP_SUBTRACT (requires a fixed SCALE)"
-        )
-        form.addRow("", self.temp_subtract_checkbox)
+        self.temp_subtract_checkbox = QCheckBox()
+        self.temp_subtract_checkbox.setToolTip("Requires a fixed (non-REFINE) SCALE.")
+        form.addRow("TEMP_SUBTRACT", self.temp_subtract_checkbox)
 
         self._on_scale_mode_changed()
         self._on_background_type_changed()

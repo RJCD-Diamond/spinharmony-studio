@@ -1,10 +1,16 @@
 """Main window: config editor + spinvert runner + live fit/chi plots."""
 
+import os
+import platform
+import shutil
+import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QTimer, QUrl
 from PyQt6.QtGui import QAction, QDesktopServices, QFontDatabase, QTextCursor
 from PyQt6.QtWidgets import (
+    QApplication,
     QComboBox,
     QFileDialog,
     QGroupBox,
@@ -28,11 +34,15 @@ from spinharmony_studio.spinvert.gui.data_files import (
     data_file_path,
     discover_titles,
     find_latest_numbered_file,
+    generated_output_files,
     parse_chi_file,
     parse_data_file,
+    parse_fit_file,
 )
 from spinharmony_studio.spinvert.gui.plot_panel import PlotPanel
 from spinharmony_studio.spinvert.gui.spinvert_runner import SpinvertRunner
+
+__all__ = ["main"]
 
 POLL_INTERVAL_MS = 1000
 
@@ -40,7 +50,7 @@ POLL_INTERVAL_MS = 1000
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Spinvert Studio")
+        self.setWindowTitle("Spinharmony Studio")
         self.resize(1400, 900)
 
         self.runner = SpinvertRunner(self)
@@ -73,16 +83,16 @@ class MainWindow(QMainWindow):
         self.form_scroll.setWidget(self.config_form)
         self.main_splitter.addWidget(self.form_scroll)
 
-        right_splitter = QSplitter()
-        right_splitter.setOrientation(Qt.Orientation.Vertical)
+        self.right_splitter = QSplitter()
+        self.right_splitter.setOrientation(Qt.Orientation.Vertical)
         self.plot_panel = PlotPanel()
-        right_splitter.addWidget(self.plot_panel)
+        self.right_splitter.addWidget(self.plot_panel)
 
-        right_splitter.addWidget(self._build_output_group())
-        right_splitter.setStretchFactor(0, 3)
-        right_splitter.setStretchFactor(1, 2)
+        self.right_splitter.addWidget(self._build_output_group())
+        self.right_splitter.setStretchFactor(0, 3)
+        self.right_splitter.setStretchFactor(1, 2)
 
-        self.main_splitter.addWidget(right_splitter)
+        self.main_splitter.addWidget(self.right_splitter)
         # Config panel and plot each take half the window by default.
         self.main_splitter.setStretchFactor(0, 1)
         self.main_splitter.setStretchFactor(1, 1)
@@ -108,6 +118,11 @@ class MainWindow(QMainWindow):
             width = self.main_splitter.width()
             if width > 0:
                 self.main_splitter.setSizes([width // 2, width - width // 2])
+            height = self.right_splitter.height()
+            if height > 0:
+                # Plot ~70%, output pane ~30% by default; both fully draggable.
+                plot_h = round(height * 0.70)
+                self.right_splitter.setSizes([plot_h, height - plot_h])
 
     def _toggle_config_panel(self, visible: bool) -> None:
         if visible:
@@ -129,6 +144,9 @@ class MainWindow(QMainWindow):
         self._add_action(file_menu, "&Save config", self._save_config, "Ctrl+S")
         self._add_action(file_menu, "&Load config", self._load_config, "Ctrl+O")
         self._add_action(file_menu, "&View config file", self._view_config)
+        self._add_action(
+            file_menu, "Clear &generated files", self._clear_generated_files
+        )
         file_menu.addSeparator()
         self.run_action = self._add_action(
             file_menu, "&Run spinvert", self._run_spinvert, "Ctrl+R"
@@ -176,9 +194,15 @@ class MainWindow(QMainWindow):
             self,
             "About Spinvert Studio",
             "Spinvert Studio\n\n"
-            "A GUI front-end for building Spinvert config files, launching the "
-            "spinvert command-line program, and viewing its fit and difference "
-            "output live.",
+            "Spinvert is a program for refinement of atomistic models to powder "
+            "magnetic diffuse scattering data for frustrated magnets, spin glasses, "
+            "and other magnetically disordered materials. "
+            "For issues/feature requests with the user interface contact: "
+            "Richard Dixey at richard.dixey@diamond.ac.uk "
+            "Or add submit a request on github "
+            "\n\n"
+            "For issues/feature requests with of the underlying SPINVERT program "
+            "Contact Joe Paddison",
         )
 
     # --- program output -------------------------------------------------
@@ -195,6 +219,9 @@ class MainWindow(QMainWindow):
         self.log_view.setFont(
             QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
         )
+        # Small floor so the splitter handle stays grabbable; the pane is
+        # otherwise freely resizable via the splitter.
+        self.log_view.setMinimumHeight(60)
         layout.addWidget(self.log_view)
         return group
 
@@ -238,17 +265,20 @@ class MainWindow(QMainWindow):
         self.save_button = QPushButton("Save config")
         self.load_button = QPushButton("Load config")
         self.view_config_button = QPushButton("View config file")
+        self.clear_files_button = QPushButton("Clear generated files")
         self.run_button = QPushButton("Run spinvert")
         self.stop_button = QPushButton("Stop")
         self.stop_button.setEnabled(False)
         self.save_button.clicked.connect(self._save_config)
         self.load_button.clicked.connect(self._load_config)
         self.view_config_button.clicked.connect(self._view_config)
+        self.clear_files_button.clicked.connect(self._clear_generated_files)
         self.run_button.clicked.connect(self._run_spinvert)
         self.stop_button.clicked.connect(self._stop_spinvert)
         button_row.addWidget(self.save_button)
         button_row.addWidget(self.load_button)
         button_row.addWidget(self.view_config_button)
+        button_row.addWidget(self.clear_files_button)
         button_row.addWidget(self.run_button)
         button_row.addWidget(self.stop_button)
         button_row.addStretch()
@@ -389,6 +419,67 @@ class MainWindow(QMainWindow):
                 f"The operating system could not open {path} in a text editor.",
             )
 
+    def _clear_generated_files(self) -> None:
+        title = self._current_title()
+        workdir = self._current_workdir()
+        if not title or workdir is None:
+            QMessageBox.warning(
+                self, "Nothing to clear", "Select a working directory and title first."
+            )
+            return
+        if self.runner.is_running():
+            QMessageBox.warning(
+                self,
+                "spinvert is running",
+                "Stop the running spinvert process before clearing its output files.",
+            )
+            return
+
+        files = generated_output_files(workdir, title)
+        if not files:
+            QMessageBox.information(
+                self,
+                "Nothing to clear",
+                f"No spinvert output files found for {title!r} in {workdir}.",
+            )
+            return
+
+        listing = "\n".join(f"    {p.name}" for p in files)
+        reply = QMessageBox.question(
+            self,
+            "Delete generated files?",
+            f"Permanently delete these {len(files)} file(s) that spinvert "
+            f"generated for {title!r}?\n\n{listing}\n\n"
+            "The input files ([title]_data.txt and [title]_config.txt) are kept. "
+            "This cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        deleted = 0
+        errors: list[str] = []
+        for path in files:
+            try:
+                path.unlink()
+                deleted += 1
+            except OSError as exc:
+                errors.append(f"{path.name}: {exc}")
+
+        self._append_log(f"Deleted {deleted} generated file(s) for {title}.\n")
+        if errors:
+            joined = "\n  ".join(errors)
+            self._append_log(f"Could not delete:\n  {joined}\n")
+            QMessageBox.warning(self, "Some files not deleted", joined)
+
+        # Plots/status were showing results that no longer exist.
+        self._fit = None
+        self._fit_label = None
+        self._reset_file_tracking()
+        self._redraw_data_and_fit()
+        self.status_label.setText("Cleared generated files.")
+
     # --- running spinvert -----------------------------------------------------
 
     def _run_spinvert(self) -> None:
@@ -397,6 +488,21 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self, "No executable", "Select the spinvert executable first."
             )
+            return
+        resolved = self._resolve_executable(executable)
+        if resolved is None:
+            QMessageBox.warning(
+                self,
+                "Executable not found",
+                f"No file found at {executable!r} and nothing by that name on "
+                "PATH.\n\nPoint 'spinvert executable' at the compiled spinvert "
+                "binary.",
+            )
+            return
+        problem = self._diagnose_executable(resolved)
+        if problem is not None:
+            self._append_log(problem + "\n")
+            QMessageBox.warning(self, "Cannot run spinvert", problem)
             return
         workdir = self._current_workdir()
         if workdir is None:
@@ -409,12 +515,96 @@ class MainWindow(QMainWindow):
             return
 
         title = self._current_title()
-        self._append_log(f"Running: {executable} {title}  (cwd={workdir})\n")
-        self.runner.start(executable, title, str(workdir))
+        self._append_log(f"Running: {resolved} {title}  (cwd={workdir})\n")
+        self.runner.start(resolved, title, str(workdir))
         self._set_running(True)
         self.status_label.setText("Running spinvert...")
 
+    @staticmethod
+    def _resolve_executable(executable: str) -> str | None:
+        """Locate the executable text as a file path (with ~ expansion) or a
+        bare name on PATH. Returns the path, or None if nothing is there."""
+        candidate = Path(executable).expanduser()
+        if candidate.is_file():
+            return str(candidate)
+        return shutil.which(executable)
+
+    @staticmethod
+    def _diagnose_executable(path: str) -> str | None:
+        """Return a human-readable reason the file at ``path`` cannot be exec'd,
+        or None if it looks runnable on this machine."""
+        p = Path(path)
+        try:
+            size = p.stat().st_size
+        except OSError as exc:
+            return f"Cannot read {path}: {exc}"
+        if not p.is_file():
+            return f"{path} is not a regular file."
+        if not os.access(p, os.X_OK):
+            return f"{path} is not marked executable. Run:\n\n    chmod +x {path}"
+        if size == 0:
+            return f"{path} is empty (0 bytes)."
+
+        try:
+            head = p.read_bytes()[:64]
+        except OSError as exc:
+            return f"Cannot read {path}: {exc}"
+
+        if head[:2] == b"MZ":
+            return (
+                f"{path} looks like a Windows executable (.exe), which cannot "
+                "run on this machine. Use a spinvert binary built for "
+                f"{platform.system()}."
+            )
+        if head[:4] == b"\x7fELF":
+            e_machine = int.from_bytes(head[18:20], "little")
+            elf_arch = {
+                0x03: "x86 (32-bit)",
+                0x3E: "x86-64",
+                0x28: "ARM (32-bit)",
+                0xB7: "AArch64",
+            }.get(e_machine, f"machine 0x{e_machine:02x}")
+            host = platform.machine()
+            expected = {
+                "x86_64": "x86-64",
+                "amd64": "x86-64",
+                "aarch64": "AArch64",
+                "arm64": "AArch64",
+                "i686": "x86 (32-bit)",
+                "i386": "x86 (32-bit)",
+            }.get(host.lower())
+            if expected and expected != elf_arch:
+                return (
+                    f"{path} is an ELF binary for {elf_arch}, but this machine "
+                    f"is {host}. You need a spinvert binary built for {host}."
+                )
+            return None
+        if head[:2] == b"#!":
+            interp = head.split(b"\n", 1)[0][2:].strip().split()
+            name = interp[0].decode(errors="replace") if interp else ""
+            if name and not Path(name).exists() and not shutil.which(name):
+                return (
+                    f"{path} is a script whose interpreter {name!r} (from its "
+                    "'#!' line) was not found."
+                )
+            return None
+
+        if all(b in (9, 10, 13) or 32 <= b <= 126 for b in head):
+            return (
+                f"{path} looks like a text file, not a program. Point 'spinvert "
+                "executable' at the compiled spinvert binary."
+            )
+        return (
+            f"{path} is not a recognised executable format (no ELF or '#!' "
+            "header). It may be corrupt or built for another OS."
+        )
+
     def _stop_spinvert(self) -> None:
+        if not self.runner.is_running():
+            self._append_log("No spinvert process is running.\n")
+            self._set_running(False)
+            return
+        self._append_log("Stopping spinvert...\n")
         self.runner.stop()
 
     def _on_run_finished(self, exit_code: int) -> None:
@@ -475,7 +665,7 @@ class MainWindow(QMainWindow):
         if path == self._last_fit_path and mtime == self._last_fit_mtime:
             return
         try:
-            self._fit = parse_data_file(path)
+            self._fit = parse_fit_file(path)
         except OSError:
             return
         self._fit_label = path.stem
@@ -507,3 +697,14 @@ class MainWindow(QMainWindow):
 
     def _redraw_data_and_fit(self) -> None:
         self.plot_panel.update_data_and_fit(self._data, self._fit, self._fit_label)
+
+
+def main(args: Sequence[str] | None = None) -> None:
+    app = QApplication(list(args) if args is not None else sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()

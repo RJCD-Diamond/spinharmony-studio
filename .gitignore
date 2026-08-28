@@ -5,6 +5,14 @@ __pycache__/
 # C extensions
 *.so
 
+#Mac stuff
+
+#Spinvert outputs
+*_chi_*.txt
+*_fit_*.txt
+*_spins_*.txt
+*_form_fac_sq*.txt
+
 # Distribution / packaging
 .Python
 env/

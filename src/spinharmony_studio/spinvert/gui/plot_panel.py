@@ -30,12 +30,12 @@ class PlotPanel(QWidget):
         self.ax_data.set_xlabel("Q")
         self.ax_data.set_ylabel("Intensity")
         self.ax_diff.set_xlabel("Q")
-        self.ax_diff.set_ylabel("Data - fit")
+        self.ax_diff.set_ylabel("Difference")
 
     def update_data_and_fit(
         self,
         data: tuple[np.ndarray, np.ndarray, np.ndarray] | None,
-        fit: tuple[np.ndarray, np.ndarray, np.ndarray] | None,
+        fit: tuple[np.ndarray, np.ndarray] | None,
         fit_label: str | None,
     ) -> None:
         self.ax_data.clear()
@@ -53,7 +53,7 @@ class PlotPanel(QWidget):
                 label="Data",
             )
         if fit is not None and fit[0].size:
-            fit_q, fit_intensity, _ = fit
+            fit_q, fit_intensity = fit[0], fit[1]
             self.ax_data.plot(
                 fit_q,
                 fit_intensity,
@@ -72,26 +72,26 @@ class PlotPanel(QWidget):
     def _update_difference(
         self,
         data: tuple[np.ndarray, np.ndarray, np.ndarray] | None,
-        fit: tuple[np.ndarray, np.ndarray, np.ndarray] | None,
+        fit: tuple[np.ndarray, np.ndarray] | None,
     ) -> None:
         self.ax_diff.clear()
         self.ax_diff.set_xlabel("Q")
-        self.ax_diff.set_ylabel("Data - fit")
+        self.ax_diff.set_ylabel("Difference")
 
         if data is None or fit is None or not data[0].size or not fit[0].size:
             return
 
         q, intensity, error = data
-        fit_q, fit_intensity, _ = fit
+        fit_intensity = fit[1]
 
-        # The fit is generally sampled on the same Q grid as the data, but
-        # interpolate to be safe and only compare over the fit's Q range.
-        in_range = (q >= fit_q.min()) & (q <= fit_q.max())
-        if not in_range.any():
+        # Difference = data intensity (2nd column) - fit intensity (2nd column),
+        # point by point; spinvert writes the fit on the data's own Q grid.
+        n = min(intensity.size, fit_intensity.size)
+        if n == 0:
             return
-        q = q[in_range]
-        residual = intensity[in_range] - np.interp(q, fit_q, fit_intensity)
-        err = error[in_range] if error is not None and error.size else None
+        q = q[:n]
+        residual = intensity[:n] - fit_intensity[:n]
+        err = error[:n] if error is not None and error.size else None
 
         self.ax_diff.axhline(0.0, color="0.6", lw=1)
         self.ax_diff.errorbar(
@@ -99,9 +99,8 @@ class PlotPanel(QWidget):
             residual,
             yerr=err,
             fmt="-",
-            color="seagreen",
+            color="blue",
             ecolor="0.8",
             elinewidth=1,
-            label="Data - fit",
+            label="Difference",
         )
-        self.ax_diff.legend(loc="best")

@@ -12,9 +12,7 @@ from PyQt6.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
-    QHBoxLayout,
     QLabel,
-    QPushButton,
     QWidget,
 )
 
@@ -105,21 +103,7 @@ class IonPanel(QGroupBox):
         form.addRow("C2", self.c2_label)
         form.addRow("UISO", self.uiso_box)
 
-        self.apply_scale_button = QPushButton("Use mu^2 as SCALE")
-        self.apply_scale_button.setToolTip(
-            "Set SCALE to the squared effective moment: spin-only when quenched, "
-            "spin-orbit (Lande) when unquenched. SCALE stays editable afterwards."
-        )
-        self.apply_scale_button.clicked.connect(self._emit_scale)
-
-        buttons = QHBoxLayout()
-        buttons.addWidget(self.apply_scale_button)
-        buttons.addStretch()
-
-        outer = QFormLayout()
-        self.setLayout(outer)
-        outer.addRow(form)
-        outer.addRow(buttons)
+        self.setLayout(form)
 
         self._recompute()
 
@@ -246,7 +230,9 @@ class IonPanel(QGroupBox):
         except Exception:
             return False
 
-    def _emit_scale(self) -> None:
+    def emit_scale(self) -> None:
+        """Emit apply_scale_requested with the selected ion's mu^2 (spin-only
+        when the orbital moment is quenched, spin-orbit otherwise)."""
         ion = self.current_ion()
         if ion is None:
             return

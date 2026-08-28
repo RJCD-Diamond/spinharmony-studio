@@ -4,8 +4,8 @@ Spinvert reads ``[title]_data.txt`` and ``[title]_config.txt`` from the
 working directory, and periodically (re)writes numbered output files as
 refinement proceeds:
 
-    [title]_fit_01.txt, [title]_fit_02.txt, ...   -- current fit, same
-                                                      columns as the data file
+    [title]_fit_01.txt, [title]_fit_02.txt, ...   -- current fit: two columns,
+                                                      Q and calculated intensity
     [title]_chi_01.txt, [title]_chi_02.txt, ...   -- chi^2 vs proposed moves
                                                       per spin
 
@@ -57,6 +57,23 @@ def find_latest_numbered_file(workdir: Path, title: str, kind: str) -> Path | No
     return best[1] if best else None
 
 
+def generated_output_files(workdir: Path, title: str) -> list[Path]:
+    """Every file spinvert writes for ``title``: the numbered chi/fit/spins
+    files plus ``[title]_form_fac_sq.txt``. Input files (``_data.txt`` /
+    ``_config.txt``) are never included. Returns existing files, sorted.
+    """
+    if not workdir.is_dir():
+        return []
+
+    numbered = re.compile(r"^" + re.escape(title) + r"_(?:chi|fit|spins)_\d+\.txt$")
+    form_factor = f"{title}_form_fac_sq.txt"
+    return sorted(
+        path
+        for path in workdir.iterdir()
+        if path.is_file() and (numbered.match(path.name) or path.name == form_factor)
+    )
+
+
 def parse_xy_columns(path: Path, ncols: int) -> list[np.ndarray]:
     """Parse a whitespace- or comma-delimited numeric file with at least
     ncols columns, skipping blank/comment/header lines that don't parse
@@ -85,9 +102,15 @@ def parse_xy_columns(path: Path, ncols: int) -> list[np.ndarray]:
 
 
 def parse_data_file(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Parse a [title]_data.txt or [title]_fit_NN.txt file: q, intensity, error."""
+    """Parse a [title]_data.txt file: q, intensity, error (three columns)."""
     q, intensity, error = parse_xy_columns(path, 3)
     return q, intensity, error
+
+
+def parse_fit_file(path: Path) -> tuple[np.ndarray, np.ndarray]:
+    """Parse a [title]_fit_NN.txt file: q, calculated intensity (two columns)."""
+    q, intensity = parse_xy_columns(path, 2)
+    return q, intensity
 
 
 def parse_chi_file(path: Path) -> tuple[np.ndarray, np.ndarray]:
