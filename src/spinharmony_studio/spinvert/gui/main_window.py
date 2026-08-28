@@ -454,12 +454,16 @@ class MainWindow(QMainWindow):
         return config
 
     def _load_config(self) -> None:
-        title = self._current_title()
         workdir = self._current_workdir()
-        if not title or workdir is None:
-            QMessageBox.warning(
-                self, "Nothing to load", "Select a working directory and title first."
-            )
+        if workdir is None:
+            # No working directory yet: pick a config file anywhere and adopt
+            # its folder as the working directory.
+            self._load_config_via_browser()
+            return
+
+        title = self._current_title()
+        if not title:
+            QMessageBox.warning(self, "No title", "Select or enter a title first.")
             return
 
         path = config_file_path(workdir, title)
@@ -468,6 +472,34 @@ class MainWindow(QMainWindow):
             return
 
         self._load_config_file(path, quiet=False)
+
+    def _load_config_via_browser(self) -> None:
+        path_str, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select a spinvert config file",
+            self.workdir_edit.text().strip(),
+            "Spinvert config (*_config.txt);;All files (*)",
+        )
+        if not path_str:
+            return
+
+        path = Path(path_str)
+        workdir = path.parent
+        if path.name.endswith("_config.txt"):
+            title = path.name[: -len("_config.txt")]
+        else:
+            title = path.stem
+
+        self.workdir_edit.setText(str(workdir))
+        self.title_combo.blockSignals(True)
+        self.title_combo.clear()
+        self.title_combo.addItems(discover_titles(workdir))
+        self.title_combo.setCurrentText(title)
+        self.title_combo.blockSignals(False)
+        self._reset_file_tracking()
+
+        self._load_config_file(path, quiet=False)
+        self._poll_files()
 
     def _maybe_autoload_config(self) -> None:
         """Load [title]_config.txt from the working directory if it is there,
