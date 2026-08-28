@@ -14,6 +14,8 @@ __pycache__/
 *_spins_*.txt
 *_form_fac_sq*.txt
 *_scf*.txt
+*_scf*.png
+*_plot.png
 *programs/
 
 # Distribution / packaging

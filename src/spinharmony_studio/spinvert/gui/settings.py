@@ -1,8 +1,8 @@
 """Small persisted store for GUI preferences.
 
-Currently this only remembers the path to the spinvert executable so the user
-picks it once and it is restored on the next launch. The file is JSON, in the
-platform's per-user application-config directory (via ``QStandardPaths``).
+This remembers the paths to the external programs (spinvert, spincorrel) so the
+user picks them once and they are restored on the next launch. The file is JSON,
+in the platform's per-user application-config directory (via ``QStandardPaths``).
 """
 
 import json
@@ -11,6 +11,7 @@ from pathlib import Path
 from PyQt6.QtCore import QStandardPaths
 
 _EXECUTABLE_KEY = "spinvert_executable"
+_SPINCORREL_KEY = "spincorrel_executable"
 
 
 def settings_file() -> Path:
@@ -51,6 +52,22 @@ def save_executable_path(path: str) -> Path:
     """Persist the spinvert executable path. Returns the settings file path."""
     data = _read()
     data[_EXECUTABLE_KEY] = path
+    _write(data)
+    return settings_file()
+
+
+def load_spincorrel_path() -> str | None:
+    """The saved spincorrel executable path, or None if unset / file missing."""
+    value = _read().get(_SPINCORREL_KEY)
+    if isinstance(value, str) and value.strip():
+        return value
+    return None
+
+
+def save_spincorrel_path(path: str) -> Path:
+    """Persist the spincorrel executable path. Returns the settings file path."""
+    data = _read()
+    data[_SPINCORREL_KEY] = path
     _write(data)
     return settings_file()
 

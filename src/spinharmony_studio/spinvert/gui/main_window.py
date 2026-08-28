@@ -31,6 +31,7 @@ from PyQt6.QtWidgets import (
 
 from spinharmony_studio.spinvert.config import SpinvertConfig
 from spinharmony_studio.spinvert.gui.config_form import ConfigFormWidget
+from spinharmony_studio.spinvert.gui.correl_panel import CorrelPanel
 from spinharmony_studio.spinvert.gui.data_files import (
     config_file_path,
     data_file_path,
@@ -40,11 +41,17 @@ from spinharmony_studio.spinvert.gui.data_files import (
     parse_chi_file,
     parse_data_file,
     parse_fit_file,
+    parse_scf_file,
+    plot_image_path,
+    scf_file_path,
+    scf_image_path,
 )
 from spinharmony_studio.spinvert.gui.plot_panel import PlotPanel
 from spinharmony_studio.spinvert.gui.settings import (
     load_executable_path,
+    load_spincorrel_path,
     save_executable_path,
+    save_spincorrel_path,
     settings_file,
 )
 from spinharmony_studio.spinvert.gui.spinvert_runner import SpinvertRunner
@@ -64,10 +71,15 @@ class MainWindow(QMainWindow):
         self.runner.output_received.connect(self._append_log)
         self.runner.finished.connect(self._on_run_finished)
 
-        # Path to the spinvert executable. Chosen from the File menu and
+        self.correl_runner = SpinvertRunner(self, program_label="spincorrel")
+        self.correl_runner.output_received.connect(self._append_log)
+        self.correl_runner.finished.connect(self._on_correl_finished)
+
+        # Paths to the external programs. Chosen from the File menu and
         # remembered between sessions (see settings.py). Never shown in the
         # main layout.
         self._executable_path: str = ""
+        self._spincorrel_path: str = ""
         self._checked_executable = False
 
         self._build_menu_bar()
@@ -77,9 +89,12 @@ class MainWindow(QMainWindow):
         self._last_fit_mtime: float | None = None
         self._last_chi_path: Path | None = None
         self._last_chi_mtime: float | None = None
+        self._last_scf_path: Path | None = None
+        self._last_scf_mtime: float | None = None
         self._data: tuple | None = None
         self._fit: tuple | None = None
         self._fit_label: str | None = None
+        self._scf: tuple | None = None
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -102,11 +117,26 @@ class MainWindow(QMainWindow):
         self.collapse_button.setToolTip("Collapse the configuration panel")
         self.collapse_button.clicked.connect(lambda: self.toggle_config_action.toggle())
 
+        # Mirror blade on the right edge for the spincorrel panel (starts
+        # collapsed): ◀ = bring it in from the right, ▶ = push it back.
+        self.correl_collapse_button = QToolButton()
+        self.correl_collapse_button.setAutoRaise(True)
+        self.correl_collapse_button.setFixedWidth(18)
+        self.correl_collapse_button.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding
+        )
+        self.correl_collapse_button.setText("◀")
+        self.correl_collapse_button.setToolTip("Show the spincorrel panel")
+        self.correl_collapse_button.clicked.connect(
+            lambda: self.toggle_correl_action.toggle()
+        )
+
         splitter_row = QHBoxLayout()
         splitter_row.setContentsMargins(0, 0, 0, 0)
         splitter_row.setSpacing(0)
         splitter_row.addWidget(self.collapse_button)
         splitter_row.addWidget(self.main_splitter, stretch=1)
+        splitter_row.addWidget(self.correl_collapse_button)
         outer_layout.addLayout(splitter_row, stretch=1)
 
         self.config_form = ConfigFormWidget()
@@ -125,11 +155,18 @@ class MainWindow(QMainWindow):
         self.right_splitter.setStretchFactor(1, 2)
 
         self.main_splitter.addWidget(self.right_splitter)
-        # Config panel and plot each take half the window by default.
+
+        self.correl_panel = CorrelPanel()
+        self.correl_panel.setVisible(False)
+        self.main_splitter.addWidget(self.correl_panel)
+
+        # The visible panes always share the width equally (see
+        # _rebalance_main_splitter); the spincorrel panel is hidden until the
+        # user opens its blade.
         self.main_splitter.setStretchFactor(0, 1)
         self.main_splitter.setStretchFactor(1, 1)
+        self.main_splitter.setStretchFactor(2, 1)
         self._did_initial_split = False
-        self._saved_splitter_sizes: list[int] | None = None
 
         self.status_label = QLabel("No run in progress.")
         status_bar = self.statusBar()
@@ -137,13 +174,12 @@ class MainWindow(QMainWindow):
         status_bar.addWidget(self.status_label)
         self.exe_status_label = QLabel()
         status_bar.addPermanentWidget(self.exe_status_label)
+        self.correl_status_label = QLabel()
+        status_bar.addPermanentWidget(self.correl_status_label)
 
-        # Restore the spinvert executable chosen in a previous session.
-        stored = load_executable_path()
-        if stored:
-            self._set_executable_path(stored, persist=False)
-        else:
-            self._set_executable_path("", persist=False)
+        # Restore the external-program paths chosen in a previous session.
+        self._set_executable_path(load_executable_path() or "", persist=False)
+        self._set_spincorrel_path(load_spincorrel_path() or "", persist=False)
 
         self.timer = QTimer(self)
         self.timer.setInterval(POLL_INTERVAL_MS)
@@ -156,9 +192,7 @@ class MainWindow(QMainWindow):
         super().showEvent(a0)
         if not self._did_initial_split:
             self._did_initial_split = True
-            width = self.main_splitter.width()
-            if width > 0:
-                self.main_splitter.setSizes([width // 2, width - width // 2])
+            self._rebalance_main_splitter()
             height = self.right_splitter.height()
             if height > 0:
                 # Plot ~70%, output pane ~30% by default; both fully draggable.
@@ -169,25 +203,50 @@ class MainWindow(QMainWindow):
             self._checked_executable = True
             self._verify_executable_configured()
 
-    def _set_config_visible(self, visible: bool) -> None:
-        if visible:
-            self.form_scroll.setVisible(True)
-            if self._saved_splitter_sizes is not None:
-                self.main_splitter.setSizes(self._saved_splitter_sizes)
-        else:
-            self._saved_splitter_sizes = self.main_splitter.sizes()
-            self.form_scroll.setVisible(False)
+    def _rebalance_main_splitter(self) -> None:
+        """Give every currently-visible pane an equal share of the width
+        (2 panes -> 50/50, 3 panes -> thirds). Called whenever a blade opens
+        or closes."""
+        panes = (self.form_scroll, self.right_splitter, self.correl_panel)
+        visible = [i for i, pane in enumerate(panes) if pane.isVisible()]
+        if not visible:
+            return
+        total = self.main_splitter.width()
+        if total <= 0:
+            total = sum(self.main_splitter.sizes()) or 1000
+        each = total // len(visible)
+        sizes = [0, 0, 0]
+        for i in visible:
+            sizes[i] = each
+        sizes[visible[-1]] += total - each * len(visible)  # absorb rounding
+        self.main_splitter.setSizes(sizes)
 
+    def _set_config_visible(self, visible: bool) -> None:
+        self.form_scroll.setVisible(visible)
+        self._rebalance_main_splitter()
         self.collapse_button.setText("◀" if visible else "▶")
         self.collapse_button.setToolTip(
             "Collapse the configuration panel"
             if visible
             else "Show the configuration panel"
         )
-        if self.toggle_config_action.isChecked() != visible:
-            self.toggle_config_action.blockSignals(True)
-            self.toggle_config_action.setChecked(visible)
-            self.toggle_config_action.blockSignals(False)
+        self._sync_toggle(self.toggle_config_action, visible)
+
+    def _set_correl_visible(self, visible: bool) -> None:
+        self.correl_panel.setVisible(visible)
+        self._rebalance_main_splitter()
+        self.correl_collapse_button.setText("▶" if visible else "◀")
+        self.correl_collapse_button.setToolTip(
+            "Collapse the spincorrel panel" if visible else "Show the spincorrel panel"
+        )
+        self._sync_toggle(self.toggle_correl_action, visible)
+
+    @staticmethod
+    def _sync_toggle(action: QAction, checked: bool) -> None:
+        if action.isChecked() != checked:
+            action.blockSignals(True)
+            action.setChecked(checked)
+            action.blockSignals(False)
 
     # --- menu bar --------------------------------------------------------
 
@@ -200,6 +259,9 @@ class MainWindow(QMainWindow):
         self._add_action(
             file_menu, "Set spinvert &executable...", self._browse_executable
         )
+        self._add_action(
+            file_menu, "Set spin&correl executable...", self._browse_spincorrel
+        )
         file_menu.addSeparator()
         self._add_action(file_menu, "&Save config", self._save_config, "Ctrl+S")
         self._add_action(file_menu, "&Load config", self._load_config, "Ctrl+O")
@@ -211,7 +273,10 @@ class MainWindow(QMainWindow):
         self.run_action = self._add_action(
             file_menu, "&Run spinvert", self._run_spinvert, "Ctrl+R"
         )
-        self.stop_action = self._add_action(file_menu, "Sto&p", self._stop_spinvert)
+        self.run_correl_action = self._add_action(
+            file_menu, "Run spi&ncorrel", self._run_spincorrel
+        )
+        self.stop_action = self._add_action(file_menu, "Sto&p", self._stop_running)
         self.stop_action.setEnabled(False)
         file_menu.addSeparator()
         self._add_action(file_menu, "&Quit", self.close, "Ctrl+Q")
@@ -229,6 +294,13 @@ class MainWindow(QMainWindow):
         self.toggle_config_action.setShortcut("F9")
         self.toggle_config_action.toggled.connect(self._set_config_visible)
         view_menu.addAction(self.toggle_config_action)
+
+        self.toggle_correl_action = QAction("Show spin&correl panel", self)
+        self.toggle_correl_action.setCheckable(True)
+        self.toggle_correl_action.setChecked(False)
+        self.toggle_correl_action.setShortcut("F10")
+        self.toggle_correl_action.toggled.connect(self._set_correl_visible)
+        view_menu.addAction(self.toggle_correl_action)
 
         help_menu = menu_bar.addMenu("&Help")
         assert help_menu is not None
@@ -268,7 +340,7 @@ class MainWindow(QMainWindow):
     # --- program output -------------------------------------------------
 
     def _build_output_group(self) -> QGroupBox:
-        group = QGroupBox("Spinvert output")
+        group = QGroupBox("Program output")
         layout = QVBoxLayout(group)
         layout.setContentsMargins(4, 4, 4, 4)
 
@@ -317,6 +389,7 @@ class MainWindow(QMainWindow):
         self.view_config_button = QPushButton("View config file")
         self.clear_files_button = QPushButton("Clear generated files")
         self.run_button = QPushButton("Run spinvert")
+        self.run_correl_button = QPushButton("Run spincorrel")
         self.stop_button = QPushButton("Stop")
         self.stop_button.setEnabled(False)
         self.save_button.clicked.connect(self._save_config)
@@ -324,12 +397,14 @@ class MainWindow(QMainWindow):
         self.view_config_button.clicked.connect(self._view_config)
         self.clear_files_button.clicked.connect(self._clear_generated_files)
         self.run_button.clicked.connect(self._run_spinvert)
-        self.stop_button.clicked.connect(self._stop_spinvert)
+        self.run_correl_button.clicked.connect(self._run_spincorrel)
+        self.stop_button.clicked.connect(self._stop_running)
         button_row.addWidget(self.save_button)
         button_row.addWidget(self.load_button)
         button_row.addWidget(self.view_config_button)
         button_row.addWidget(self.clear_files_button)
         button_row.addWidget(self.run_button)
+        button_row.addWidget(self.run_correl_button)
         button_row.addWidget(self.stop_button)
         button_row.addStretch()
         layout.addLayout(button_row)
@@ -390,6 +465,37 @@ class MainWindow(QMainWindow):
                 "“Set spinvert executable…”  before running spinvert.",
             )
 
+    def _browse_spincorrel(self) -> None:
+        start_dir = ""
+        for candidate in (self._spincorrel_path, self._executable_path):
+            if candidate:
+                start_dir = str(Path(candidate).expanduser().parent)
+                break
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select spincorrel executable", start_dir
+        )
+        if path:
+            self._set_spincorrel_path(path, persist=True)
+
+    def _set_spincorrel_path(self, path: str, persist: bool) -> None:
+        self._spincorrel_path = path.strip()
+        self.correl_status_label.setText(
+            f"spincorrel: {self._spincorrel_path}"
+            if self._spincorrel_path
+            else "spincorrel: not set"
+        )
+        if persist and self._spincorrel_path:
+            try:
+                where = save_spincorrel_path(self._spincorrel_path)
+            except OSError as exc:
+                QMessageBox.warning(
+                    self,
+                    "Could not save setting",
+                    f"The spincorrel executable path could not be saved:\n{exc}",
+                )
+            else:
+                self._append_log(f"Saved spincorrel executable path to {where}\n")
+
     def _browse_workdir(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "Select working directory")
         if path:
@@ -420,6 +526,8 @@ class MainWindow(QMainWindow):
         self._last_fit_mtime = None
         self._last_chi_path = None
         self._last_chi_mtime = None
+        self._last_scf_path = None
+        self._last_scf_mtime = None
 
     # --- config save / load -------------------------------------------------
 
@@ -605,35 +713,46 @@ class MainWindow(QMainWindow):
         # Plots/status were showing results that no longer exist.
         self._fit = None
         self._fit_label = None
+        self._scf = None
         self._reset_file_tracking()
         self._redraw_data_and_fit()
+        self.correl_panel.update_scf(None)
         self.status_label.setText("Cleared generated files.")
 
     # --- running spinvert -----------------------------------------------------
 
-    def _run_spinvert(self) -> None:
-        executable = self._executable_path.strip()
-        if not executable:
+    def _prepare_executable(self, path: str, label: str) -> str | None:
+        """Resolve and sanity-check an executable path, showing a dialog and
+        returning None on any problem."""
+        path = path.strip()
+        if not path:
             QMessageBox.warning(
                 self,
-                "No spinvert executable",
-                "Choose it via  File → “Set spinvert executable…”  first.",
+                f"No {label} executable",
+                f"Choose it via  File → “Set {label} executable…”  first.",
             )
-            return
-        resolved = self._resolve_executable(executable)
+            return None
+        resolved = self._resolve_executable(path)
         if resolved is None:
             QMessageBox.warning(
                 self,
                 "Executable not found",
-                f"No file found at {executable!r} and nothing by that name on "
-                "PATH.\n\nPoint 'spinvert executable' at the compiled spinvert "
-                "binary.",
+                f"No file found at {path!r} and nothing by that name on PATH.\n\n"
+                f"Point the {label} executable at the compiled binary.",
             )
-            return
+            return None
         problem = self._diagnose_executable(resolved)
         if problem is not None:
             self._append_log(problem + "\n")
-            QMessageBox.warning(self, "Cannot run spinvert", problem)
+            QMessageBox.warning(self, f"Cannot run {label}", problem)
+            return None
+        return resolved
+
+    def _run_spinvert(self) -> None:
+        if self.runner.is_running() or self.correl_runner.is_running():
+            return
+        resolved = self._prepare_executable(self._executable_path, "spinvert")
+        if resolved is None:
             return
         workdir = self._current_workdir()
         if workdir is None:
@@ -648,8 +767,43 @@ class MainWindow(QMainWindow):
         title = self._current_title()
         self._append_log(f"Running: {resolved} {title}  (cwd={workdir})\n")
         self.runner.start(resolved, title, str(workdir))
-        self._set_running(True)
+        self._update_run_controls()
         self.status_label.setText("Running spinvert...")
+
+    def _run_spincorrel(self) -> None:
+        if self.runner.is_running() or self.correl_runner.is_running():
+            return
+        resolved = self._prepare_executable(self._spincorrel_path, "spincorrel")
+        if resolved is None:
+            return
+        workdir = self._current_workdir()
+        if workdir is None:
+            QMessageBox.warning(
+                self, "No working directory", "Select a valid working directory first."
+            )
+            return
+        title = self._current_title()
+        if not title:
+            QMessageBox.warning(self, "No title", "Select or enter a title first.")
+            return
+        if find_latest_numbered_file(workdir, title, "spins") is None:
+            reply = QMessageBox.question(
+                self,
+                "No spin configurations",
+                f"No {title}_spins_NN.txt files were found. spincorrel needs the "
+                "spin configurations that spinvert writes.\n\nRun spincorrel anyway?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+        self._append_log(f"Running: {resolved} {title}  (cwd={workdir})\n")
+        self.correl_runner.start(resolved, title, str(workdir))
+        self._update_run_controls()
+        self.status_label.setText("Running spincorrel...")
+        if not self.toggle_correl_action.isChecked():
+            self.toggle_correl_action.setChecked(True)  # reveal the results blade
 
     @staticmethod
     def _resolve_executable(executable: str) -> str | None:
@@ -730,24 +884,57 @@ class MainWindow(QMainWindow):
             "header). It may be corrupt or built for another OS."
         )
 
-    def _stop_spinvert(self) -> None:
-        if not self.runner.is_running():
-            self._append_log("No spinvert process is running.\n")
-            self._set_running(False)
-            return
-        self._append_log("Stopping spinvert...\n")
-        self.runner.stop()
+    def _stop_running(self) -> None:
+        stopped = False
+        if self.runner.is_running():
+            self._append_log("Stopping spinvert...\n")
+            # Snapshot whatever the fit plot is showing right now.
+            workdir = self._current_workdir()
+            title = self._current_title()
+            if workdir is not None and title:
+                self._save_panel_png(self.plot_panel, plot_image_path(workdir, title))
+            self.runner.stop()
+            stopped = True
+        if self.correl_runner.is_running():
+            self._append_log("Stopping spincorrel...\n")
+            self.correl_runner.stop()
+            stopped = True
+        if not stopped:
+            self._append_log("No process is running.\n")
+        self._update_run_controls()
+
+    def _save_panel_png(self, panel, path: Path) -> None:
+        try:
+            panel.save_png(path)
+        except Exception as exc:  # matplotlib / OSError
+            self._append_log(f"Could not save {path.name}: {exc}\n")
+        else:
+            self._append_log(f"Saved plot to {path}\n")
 
     def _on_run_finished(self, exit_code: int) -> None:
         self._append_log(f"spinvert exited with code {exit_code}\n")
-        self._set_running(False)
-        self.status_label.setText(f"Finished (exit code {exit_code}).")
+        self._update_run_controls()
+        self.status_label.setText(f"spinvert finished (exit code {exit_code}).")
 
-    def _set_running(self, running: bool) -> None:
-        self.run_button.setEnabled(not running)
-        self.stop_button.setEnabled(running)
-        self.run_action.setEnabled(not running)
-        self.stop_action.setEnabled(running)
+    def _on_correl_finished(self, exit_code: int) -> None:
+        self._append_log(f"spincorrel exited with code {exit_code}\n")
+        self._update_run_controls()
+        self.status_label.setText(f"spincorrel finished (exit code {exit_code}).")
+        workdir = self._current_workdir()
+        title = self._current_title()
+        if workdir is not None and title:
+            self._poll_scf(workdir, title)
+            if self._scf is not None and self._scf[0].size:
+                self._save_panel_png(self.correl_panel, scf_image_path(workdir, title))
+
+    def _update_run_controls(self) -> None:
+        busy = self.runner.is_running() or self.correl_runner.is_running()
+        self.run_button.setEnabled(not busy)
+        self.run_action.setEnabled(not busy)
+        self.run_correl_button.setEnabled(not busy)
+        self.run_correl_action.setEnabled(not busy)
+        self.stop_button.setEnabled(busy)
+        self.stop_action.setEnabled(busy)
 
     def _append_log(self, text: str) -> None:
         """Append raw process output, preserving its own line breaks and
@@ -773,6 +960,7 @@ class MainWindow(QMainWindow):
         self._poll_data(workdir, title)
         self._poll_fit(workdir, title)
         self._poll_chi(workdir, title)
+        self._poll_scf(workdir, title)
 
     def _poll_data(self, workdir: Path, title: str) -> None:
         path = data_file_path(workdir, title)
@@ -825,6 +1013,21 @@ class MainWindow(QMainWindow):
                 f"{path.stem}: chi^2 = {latest_chi2:.6g} "
                 f"at {latest_moves:.0f} moves/spin"
             )
+
+    def _poll_scf(self, workdir: Path, title: str) -> None:
+        path = scf_file_path(workdir, title)
+        if not path.exists():
+            return
+        mtime = path.stat().st_mtime
+        if path == self._last_scf_path and mtime == self._last_scf_mtime:
+            return
+        try:
+            self._scf = parse_scf_file(path)
+        except OSError:
+            return
+        self._last_scf_path = path
+        self._last_scf_mtime = mtime
+        self.correl_panel.update_scf(self._scf, path.stem)
 
     def _redraw_data_and_fit(self) -> None:
         self.plot_panel.update_data_and_fit(self._data, self._fit, self._fit_label)

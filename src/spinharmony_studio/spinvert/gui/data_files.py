@@ -11,6 +11,9 @@ refinement proceeds:
 
 Later runs get higher numbers; the highest-numbered file is always the
 most recent.
+
+spincorrel (run afterwards) writes ``[title]_scf.txt`` -- the spin-correlation
+function in three columns (radial distance, <S_i.S_j>, sample std. dev.).
 """
 
 import re
@@ -27,6 +30,24 @@ def data_file_path(workdir: Path, title: str) -> Path:
 
 def config_file_path(workdir: Path, title: str) -> Path:
     return workdir / f"{title}_config.txt"
+
+
+def scf_file_path(workdir: Path, title: str) -> Path:
+    """``[title]_scf.txt`` -- the spin-correlation function written by
+    spincorrel (run after spinvert)."""
+    return workdir / f"{title}_scf.txt"
+
+
+def plot_image_path(workdir: Path, title: str) -> Path:
+    """``[title]_plot.png`` -- snapshot of the data/fit plot, saved by the GUI
+    when spinvert is stopped."""
+    return workdir / f"{title}_plot.png"
+
+
+def scf_image_path(workdir: Path, title: str) -> Path:
+    """``[title]_scf.png`` -- snapshot of the spin-correlation plot, saved by
+    the GUI after spincorrel runs."""
+    return workdir / f"{title}_scf.png"
 
 
 def discover_titles(workdir: Path) -> list[str]:
@@ -58,19 +79,25 @@ def find_latest_numbered_file(workdir: Path, title: str, kind: str) -> Path | No
 
 
 def generated_output_files(workdir: Path, title: str) -> list[Path]:
-    """Every file spinvert writes for ``title``: the numbered chi/fit/spins
-    files plus ``[title]_form_fac_sq.txt``. Input files (``_data.txt`` /
-    ``_config.txt``) are never included. Returns existing files, sorted.
+    """Every file spinvert / spincorrel (and this GUI) write for ``title``: the
+    numbered chi/fit/spins files, ``[title]_form_fac_sq.txt``, ``[title]_scf.txt``
+    and the saved plot snapshots. Input files (``_data.txt`` / ``_config.txt``)
+    are never included. Returns existing files, sorted.
     """
     if not workdir.is_dir():
         return []
 
     numbered = re.compile(r"^" + re.escape(title) + r"_(?:chi|fit|spins)_\d+\.txt$")
-    form_factor = f"{title}_form_fac_sq.txt"
+    extras = {
+        f"{title}_form_fac_sq.txt",
+        f"{title}_scf.txt",
+        f"{title}_plot.png",
+        f"{title}_scf.png",
+    }
     return sorted(
         path
         for path in workdir.iterdir()
-        if path.is_file() and (numbered.match(path.name) or path.name == form_factor)
+        if path.is_file() and (numbered.match(path.name) or path.name in extras)
     )
 
 
@@ -117,3 +144,11 @@ def parse_chi_file(path: Path) -> tuple[np.ndarray, np.ndarray]:
     """Parse a [title]_chi_NN.txt file: moves per spin, chi^2."""
     moves, chi2 = parse_xy_columns(path, 2)
     return moves, chi2
+
+
+def parse_scf_file(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Parse a [title]_scf.txt file: radial distance (Angstrom), spin-correlation
+    function <S_i.S_j>, and sample standard deviation (three columns; the last
+    column is only meaningful when several spin configurations were used)."""
+    r, scf, sigma = parse_xy_columns(path, 3)
+    return r, scf, sigma
