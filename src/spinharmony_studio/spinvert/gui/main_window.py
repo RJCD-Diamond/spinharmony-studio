@@ -22,7 +22,9 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSplitter,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -40,6 +42,11 @@ from spinharmony_studio.spinvert.gui.data_files import (
     parse_fit_file,
 )
 from spinharmony_studio.spinvert.gui.plot_panel import PlotPanel
+from spinharmony_studio.spinvert.gui.settings import (
+    load_executable_path,
+    save_executable_path,
+    settings_file,
+)
 from spinharmony_studio.spinvert.gui.spinvert_runner import SpinvertRunner
 
 __all__ = ["main"]
@@ -56,6 +63,12 @@ class MainWindow(QMainWindow):
         self.runner = SpinvertRunner(self)
         self.runner.output_received.connect(self._append_log)
         self.runner.finished.connect(self._on_run_finished)
+
+        # Path to the spinvert executable. Chosen from the File menu and
+        # remembered between sessions (see settings.py). Never shown in the
+        # main layout.
+        self._executable_path: str = ""
+        self._checked_executable = False
 
         self._build_menu_bar()
 
@@ -75,7 +88,26 @@ class MainWindow(QMainWindow):
 
         self.main_splitter = QSplitter()
         self.main_splitter.setChildrenCollapsible(True)
-        outer_layout.addWidget(self.main_splitter, stretch=1)
+
+        # Xbox-360-"blades" collapse control: a thin full-height strip on the
+        # left edge. Left arrowhead slides the config panel away to the left;
+        # once collapsed it shows a right arrowhead to bring it back.
+        self.collapse_button = QToolButton()
+        self.collapse_button.setAutoRaise(True)
+        self.collapse_button.setFixedWidth(18)
+        self.collapse_button.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding
+        )
+        self.collapse_button.setText("◀")
+        self.collapse_button.setToolTip("Collapse the configuration panel")
+        self.collapse_button.clicked.connect(lambda: self.toggle_config_action.toggle())
+
+        splitter_row = QHBoxLayout()
+        splitter_row.setContentsMargins(0, 0, 0, 0)
+        splitter_row.setSpacing(0)
+        splitter_row.addWidget(self.collapse_button)
+        splitter_row.addWidget(self.main_splitter, stretch=1)
+        outer_layout.addLayout(splitter_row, stretch=1)
 
         self.config_form = ConfigFormWidget()
         self.form_scroll = QScrollArea()
@@ -103,6 +135,15 @@ class MainWindow(QMainWindow):
         status_bar = self.statusBar()
         assert status_bar is not None
         status_bar.addWidget(self.status_label)
+        self.exe_status_label = QLabel()
+        status_bar.addPermanentWidget(self.exe_status_label)
+
+        # Restore the spinvert executable chosen in a previous session.
+        stored = load_executable_path()
+        if stored:
+            self._set_executable_path(stored, persist=False)
+        else:
+            self._set_executable_path("", persist=False)
 
         self.timer = QTimer(self)
         self.timer.setInterval(POLL_INTERVAL_MS)
@@ -124,7 +165,11 @@ class MainWindow(QMainWindow):
                 plot_h = round(height * 0.70)
                 self.right_splitter.setSizes([plot_h, height - plot_h])
 
-    def _toggle_config_panel(self, visible: bool) -> None:
+        if not self._checked_executable:
+            self._checked_executable = True
+            self._verify_executable_configured()
+
+    def _set_config_visible(self, visible: bool) -> None:
         if visible:
             self.form_scroll.setVisible(True)
             if self._saved_splitter_sizes is not None:
@@ -132,6 +177,17 @@ class MainWindow(QMainWindow):
         else:
             self._saved_splitter_sizes = self.main_splitter.sizes()
             self.form_scroll.setVisible(False)
+
+        self.collapse_button.setText("◀" if visible else "▶")
+        self.collapse_button.setToolTip(
+            "Collapse the configuration panel"
+            if visible
+            else "Show the configuration panel"
+        )
+        if self.toggle_config_action.isChecked() != visible:
+            self.toggle_config_action.blockSignals(True)
+            self.toggle_config_action.setChecked(visible)
+            self.toggle_config_action.blockSignals(False)
 
     # --- menu bar --------------------------------------------------------
 
@@ -141,6 +197,10 @@ class MainWindow(QMainWindow):
 
         file_menu = menu_bar.addMenu("&File")
         assert file_menu is not None
+        self._add_action(
+            file_menu, "Set spinvert &executable...", self._browse_executable
+        )
+        file_menu.addSeparator()
         self._add_action(file_menu, "&Save config", self._save_config, "Ctrl+S")
         self._add_action(file_menu, "&Load config", self._load_config, "Ctrl+O")
         self._add_action(file_menu, "&View config file", self._view_config)
@@ -167,7 +227,7 @@ class MainWindow(QMainWindow):
         self.toggle_config_action.setCheckable(True)
         self.toggle_config_action.setChecked(True)
         self.toggle_config_action.setShortcut("F9")
-        self.toggle_config_action.toggled.connect(self._toggle_config_panel)
+        self.toggle_config_action.toggled.connect(self._set_config_visible)
         view_menu.addAction(self.toggle_config_action)
 
         help_menu = menu_bar.addMenu("&Help")
@@ -228,18 +288,8 @@ class MainWindow(QMainWindow):
     # --- top control bar --------------------------------------------------
 
     def _build_program_group(self) -> QGroupBox:
-        group = QGroupBox("Program and working directory")
+        group = QGroupBox("Working directory")
         layout = QVBoxLayout(group)
-
-        exe_row = QHBoxLayout()
-        self.executable_edit = QLineEdit()
-        self.executable_edit.setPlaceholderText("Path to the spinvert executable")
-        exe_browse = QPushButton("Browse...")
-        exe_browse.clicked.connect(self._browse_executable)
-        exe_row.addWidget(QLabel("spinvert executable"))
-        exe_row.addWidget(self.executable_edit, stretch=1)
-        exe_row.addWidget(exe_browse)
-        layout.addLayout(exe_row)
 
         dir_row = QHBoxLayout()
         self.workdir_edit = QLineEdit()
@@ -289,9 +339,56 @@ class MainWindow(QMainWindow):
     # --- browsing / title discovery ----------------------------------------
 
     def _browse_executable(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Select spinvert executable")
+        start_dir = ""
+        if self._executable_path:
+            start_dir = str(Path(self._executable_path).expanduser().parent)
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select spinvert executable", start_dir
+        )
         if path:
-            self.executable_edit.setText(path)
+            self._set_executable_path(path, persist=True)
+
+    def _set_executable_path(self, path: str, persist: bool) -> None:
+        self._executable_path = path.strip()
+        self.exe_status_label.setText(
+            f"spinvert: {self._executable_path}"
+            if self._executable_path
+            else "spinvert: not set"
+        )
+        if persist and self._executable_path:
+            try:
+                where = save_executable_path(self._executable_path)
+            except OSError as exc:
+                QMessageBox.warning(
+                    self,
+                    "Could not save setting",
+                    f"The spinvert executable path could not be saved:\n{exc}",
+                )
+            else:
+                self._append_log(f"Saved spinvert executable path to {where}\n")
+
+    def _verify_executable_configured(self) -> None:
+        """On startup, make sure a usable spinvert executable is configured;
+        otherwise tell the user to pick one before running anything."""
+        if not self._executable_path:
+            QMessageBox.warning(
+                self,
+                "spinvert executable not set",
+                "No spinvert executable is configured "
+                f"(nothing saved in {settings_file()}).\n\n"
+                "Choose it via  File → “Set spinvert executable…”  "
+                "before running spinvert.",
+            )
+            return
+        if self._resolve_executable(self._executable_path) is None:
+            QMessageBox.warning(
+                self,
+                "spinvert executable not found",
+                "The saved spinvert executable no longer exists:\n\n"
+                f"{self._executable_path}\n\n"
+                "Choose it again via  File → "
+                "“Set spinvert executable…”  before running spinvert.",
+            )
 
     def _browse_workdir(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "Select working directory")
@@ -483,10 +580,12 @@ class MainWindow(QMainWindow):
     # --- running spinvert -----------------------------------------------------
 
     def _run_spinvert(self) -> None:
-        executable = self.executable_edit.text().strip()
+        executable = self._executable_path.strip()
         if not executable:
             QMessageBox.warning(
-                self, "No executable", "Select the spinvert executable first."
+                self,
+                "No spinvert executable",
+                "Choose it via  File → “Set spinvert executable…”  first.",
             )
             return
         resolved = self._resolve_executable(executable)
@@ -701,6 +800,9 @@ class MainWindow(QMainWindow):
 
 def main(args: Sequence[str] | None = None) -> None:
     app = QApplication(list(args) if args is not None else sys.argv)
+    # Give QStandardPaths a stable per-user config directory for settings.py.
+    app.setOrganizationName("DiamondLightSource")
+    app.setApplicationName("spinharmony-studio")
     window = MainWindow()
     window.show()
     sys.exit(app.exec())
