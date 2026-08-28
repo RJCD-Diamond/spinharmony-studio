@@ -6,6 +6,7 @@ __pycache__/
 *.so
 
 #Mac stuff
+.DS_Store
 
 #Spinvert outputs
 *_chi_*.txt
