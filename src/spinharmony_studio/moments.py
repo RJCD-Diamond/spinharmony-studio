@@ -175,17 +175,17 @@ class MagneticProperties(BaseModel):
     @computed_field
     @cached_property
     def mu_spin_only(self) -> float:
-        return round(spin_only_moment(self.S), 2)
+        return round(spin_only_moment(self.S), 6)
 
     @computed_field
     @cached_property
     def lande_g_factor(self) -> float:
-        return round(lande_g_factor(self.S, self.L, self.J), 2)
+        return round(lande_g_factor(self.S, self.L, self.J), 6)
 
     @computed_field
     @cached_property
     def mu_spin_orbit(self) -> float:
-        return round(spin_orbit_moment(self.S, self.L, self.J), 2)
+        return round(spin_orbit_moment(self.S, self.L, self.J), 6)
 
     @computed_field
     @cached_property
