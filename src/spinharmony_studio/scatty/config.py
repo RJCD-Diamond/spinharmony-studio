@@ -81,7 +81,7 @@ class ScattyConfig(FortranConfig):
     remove_bragg: Centring | None = Field(default=None, alias="REMOVE_BRAGG")
     symmetry: LaueClass | None = Field(default=None, alias="SYMMETRY")
     ppm_range: tuple[float, float] | None = Field(default=None, alias="PPM_RANGE")
-    ppm_colourmap: Colourmap | None = Field(default=None, alias="PPM_COLOURMAP")
+    ppm_colourmap: Colourmap | None = Field(default="heat", alias="PPM_COLOURMAP")
 
     # --- Cross-field validation ---
 
@@ -236,15 +236,13 @@ class ScattyConfig(FortranConfig):
 
         return lines
 
-    def to_file(self, path: str | Path) -> Path:
+    def save_to_file(self, path: str | Path) -> Path:
         config_filename = "scatty_config.txt"
 
         if not str(path).endswith(config_filename):
             raise ValueError(f"config filename must be {config_filename}")
 
-        path = Path(path)
-        self._check_output_name(path.name)
-        path.write_text(self.to_text())
+        path = self.to_file(path)
         return path
 
 

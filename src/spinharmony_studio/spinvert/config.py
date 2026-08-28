@@ -330,6 +330,16 @@ class SpinvertConfig(FortranConfig):
 
         return lines
 
+    def save_to_file(self, path: str | Path) -> Path:
+
+        config_end_str = "_config.txt"
+
+        if not str(path).endswith("_config.txt"):
+            raise ValueError(f"config filename must be {config_end_str}")
+
+        path = self.to_file(path)
+        return path
+
 
 if __name__ == "__main__":
     example = SpinvertConfig(
@@ -348,4 +358,4 @@ if __name__ == "__main__":
     )
     print(example.model_dump_json(indent=2, by_alias=True))
 
-    example.to_file("/workspaces/spinharmony_studio/src/example_config.txt")
+    example.save_to_file("/workspaces/spinharmony_studio/src/example_config.txt")

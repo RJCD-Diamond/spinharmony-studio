@@ -557,7 +557,7 @@ class MainWindow(QMainWindow):
         if config is None:
             return None
 
-        config.to_file(config_file_path(workdir, title))
+        config.save_to_file(config_file_path(workdir, title))
         self._append_log(f"Wrote {config_file_path(workdir, title)}\n")
         return config
 
