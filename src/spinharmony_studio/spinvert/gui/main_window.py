@@ -888,11 +888,6 @@ class MainWindow(QMainWindow):
         stopped = False
         if self.runner.is_running():
             self._append_log("Stopping spinvert...\n")
-            # Snapshot whatever the fit plot is showing right now.
-            workdir = self._current_workdir()
-            title = self._current_title()
-            if workdir is not None and title:
-                self._save_panel_png(self.plot_panel, plot_image_path(workdir, title))
             self.runner.stop()
             stopped = True
         if self.correl_runner.is_running():
@@ -915,6 +910,13 @@ class MainWindow(QMainWindow):
         self._append_log(f"spinvert exited with code {exit_code}\n")
         self._update_run_controls()
         self.status_label.setText(f"spinvert finished (exit code {exit_code}).")
+        # Snapshot the fit plot, whether spinvert finished on its own or was
+        # stopped (Stop -> kill -> this handler still fires).
+        workdir = self._current_workdir()
+        title = self._current_title()
+        if workdir is not None and title:
+            self._poll_files()
+            self._save_panel_png(self.plot_panel, plot_image_path(workdir, title))
 
     def _on_correl_finished(self, exit_code: int) -> None:
         self._append_log(f"spincorrel exited with code {exit_code}\n")
