@@ -13,6 +13,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from spinharmony_studio.config_base import FortranConfig
+
 # A "REFINE" sentinel or a fixed numeric value.
 RefineOrFloat = float | Literal["REFINE"]
 
@@ -173,11 +175,9 @@ def parse_spinvert_config_text(text: str) -> dict:
     return data
 
 
-class SpinvertConfig(BaseModel):
-    model_config = {
-        "populate_by_name": True,
-        "validate_by_name": True,
-    }
+class SpinvertConfig(FortranConfig):
+    # File-saving behaviour (to_text / to_file / formatting helpers) is inherited
+    # from FortranConfig; only _config_lines below is Spinvert-specific.
 
     # --- Required keywords ---
     title: str = Field(alias="TITLE")
@@ -272,7 +272,15 @@ class SpinvertConfig(BaseModel):
 
     # --- Export ---
 
-    def to_text(self) -> str:
+    @classmethod
+    def _check_output_name(cls, name: str) -> None:
+        # Spinvert config files are named [title]_config.txt (variable stem).
+        if not name.endswith("_config.txt"):
+            raise ValueError(
+                f"Spinvert config files must be named [title]_config.txt, not {name!r}."
+            )
+
+    def _config_lines(self) -> list[str]:
         """Render this config back into Spinvert's [title]_config.txt format."""
         j0 = self.form_factor_j0
         lines = [
@@ -320,15 +328,7 @@ class SpinvertConfig(BaseModel):
         if self.temp_subtract:
             lines.append("TEMP_SUBTRACT")
 
-        return "\n".join(lines) + "\n"
-
-    def to_file(self, path: str | Path) -> None:
-        """Write this config out as a Spinvert [title]_config.txt file."""
-
-        if not str(path).endswith("_config.txt"):
-            raise ValueError("Spinvert config files must be named [title]_config.txt")
-
-        Path(path).write_text(self.to_text())
+        return lines
 
 
 if __name__ == "__main__":
