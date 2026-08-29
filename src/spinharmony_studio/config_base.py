@@ -1,8 +1,8 @@
 """Shared base for the plain-text ``KEYWORD value ...`` configuration files used
 by the external programs (Spinvert, Scatty, ...).
 
-Each concrete config is a pydantic model that subclasses :class:`KeywordConfig`
-and implements :meth:`KeywordConfig._config_lines` -- the ordered keyword lines
+Each concrete config is a pydantic model that subclasses :class:`FortranConfig`
+and implements :meth:`FortranConfig._config_lines` -- the ordered keyword lines
 for its own format. This base contributes:
 
 * ``to_text`` / ``to_file`` -- rendering and writing, with a filename check,
@@ -25,7 +25,7 @@ def format_number(value: float) -> str:
     return f"{value:.10g}"
 
 
-class KeywordConfig(BaseModel):
+class FortranConfig(BaseModel):
     """Base class for keyword/value text-config models."""
 
     model_config = ConfigDict(populate_by_name=True, validate_by_name=True)

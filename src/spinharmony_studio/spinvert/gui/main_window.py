@@ -22,14 +22,13 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
-    QSizePolicy,
     QSplitter,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from spinharmony_studio.spinvert.config import SpinvertConfig
+from spinharmony_studio.spinvert.gui.blade_button import BladeButton
 from spinharmony_studio.spinvert.gui.config_form import ConfigFormWidget
 from spinharmony_studio.spinvert.gui.correl_panel import CorrelPanel
 from spinharmony_studio.spinvert.gui.data_files import (
@@ -104,28 +103,15 @@ class MainWindow(QMainWindow):
         self.main_splitter = QSplitter()
         self.main_splitter.setChildrenCollapsible(True)
 
-        # Xbox-360-"blades" collapse control: a thin full-height strip on the
-        # left edge. Left arrowhead slides the config panel away to the left;
-        # once collapsed it shows a right arrowhead to bring it back.
-        self.collapse_button = QToolButton()
-        self.collapse_button.setAutoRaise(True)
-        self.collapse_button.setFixedWidth(18)
-        self.collapse_button.setSizePolicy(
-            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding
-        )
-        self.collapse_button.setText("◀")
+        # Xbox-360-"blades" collapse controls: thin full-height strips on the
+        # window edges, each labelled with its section name and an arrow. The
+        # left blade slides the config panel away to the left; the right blade
+        # brings the spincorrel panel in from the right.
+        self.collapse_button = BladeButton("Configuration", edge="left")
         self.collapse_button.setToolTip("Collapse the configuration panel")
         self.collapse_button.clicked.connect(lambda: self.toggle_config_action.toggle())
 
-        # Mirror blade on the right edge for the spincorrel panel (starts
-        # collapsed): ◀ = bring it in from the right, ▶ = push it back.
-        self.correl_collapse_button = QToolButton()
-        self.correl_collapse_button.setAutoRaise(True)
-        self.correl_collapse_button.setFixedWidth(18)
-        self.correl_collapse_button.setSizePolicy(
-            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding
-        )
-        self.correl_collapse_button.setText("◀")
+        self.correl_collapse_button = BladeButton("Spin correlation", edge="right")
         self.correl_collapse_button.setToolTip("Show the spincorrel panel")
         self.correl_collapse_button.clicked.connect(
             lambda: self.toggle_correl_action.toggle()
@@ -224,7 +210,7 @@ class MainWindow(QMainWindow):
     def _set_config_visible(self, visible: bool) -> None:
         self.form_scroll.setVisible(visible)
         self._rebalance_main_splitter()
-        self.collapse_button.setText("◀" if visible else "▶")
+        self.collapse_button.set_arrow("◀" if visible else "▶")
         self.collapse_button.setToolTip(
             "Collapse the configuration panel"
             if visible
@@ -235,7 +221,7 @@ class MainWindow(QMainWindow):
     def _set_correl_visible(self, visible: bool) -> None:
         self.correl_panel.setVisible(visible)
         self._rebalance_main_splitter()
-        self.correl_collapse_button.setText("▶" if visible else "◀")
+        self.correl_collapse_button.set_arrow("▶" if visible else "◀")
         self.correl_collapse_button.setToolTip(
             "Collapse the spincorrel panel" if visible else "Show the spincorrel panel"
         )
