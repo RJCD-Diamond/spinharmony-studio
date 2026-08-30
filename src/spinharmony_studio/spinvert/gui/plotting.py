@@ -157,7 +157,7 @@ def draw_difference(
     if style.zero_line:
         ax.axhline(0.0, color=style.zero_line_color, lw=style.zero_line_width)
     _plot_series(ax, q, residual, err, style.difference, style.difference_label)
-    ax.legend(loc=style.legend_loc)
+    # ax.legend(loc=style.legend_loc) #don't set a legend it looks messy
 
 
 def draw_correlation(
