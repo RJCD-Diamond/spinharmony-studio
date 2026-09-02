@@ -6,8 +6,8 @@ the same colourmap and intensity range Scatty used for its ``.ppm``, plus a
 matplotlib colour bar (so the bar is generated in Python from the colourmap and
 the PPM scale rather than read back from ``*_sc_colourbar.ppm``).
 
-Fallbacks: a rendered ``.ppm`` / ``.png`` image, or a 1-D intensity scan drawn
-as a line. Built on the shared :class:`MplPanel`.
+Fallback: a rendered ``.ppm`` / ``.png`` image. Scatty output is never shown as
+a line plot. Built on the shared :class:`MplPanel`.
 """
 
 from pathlib import Path
@@ -149,11 +149,7 @@ class ScattyPlotPanel(MplPanel):
         path = self._path
         drew = False
         if path is not None and path.is_file():
-            drew = (
-                self._draw_sc_grid(path)
-                or self._draw_image(path)
-                or self._draw_line(path)
-            )
+            drew = self._draw_sc_grid(path) or self._draw_image(path)
         if not drew:
             self.ax.text(
                 0.5,
@@ -223,26 +219,4 @@ class ScattyPlotPanel(MplPanel):
         self.ax.set_title(path.name)
         self.ax.set_xticks([])
         self.ax.set_yticks([])
-        return True
-
-    def _draw_line(self, path: Path) -> bool:
-        try:
-            data = np.loadtxt(path, comments=("#", "!"))
-        except (OSError, ValueError):
-            return False
-        data = np.atleast_2d(data)
-        if data.ndim != 2 or data.shape[1] < 2 or data.shape[0] < 2:
-            return False
-        style = self.plot_style
-        self.ax.plot(
-            data[:, 0],
-            data[:, 1],
-            style.correlation.fmt,
-            color=style.correlation.color,
-            ms=style.correlation.marker_size,
-            lw=style.correlation.line_width,
-        )
-        self.ax.set_xlabel("Q (reciprocal-lattice units)")
-        self.ax.set_ylabel("Intensity")
-        self.ax.set_title(path.name)
         return True

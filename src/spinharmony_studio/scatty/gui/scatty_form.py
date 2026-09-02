@@ -3,6 +3,7 @@
 import warnings
 from typing import get_args
 
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -13,6 +14,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPushButton,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -29,6 +31,9 @@ from spinharmony_studio.scatty.config import (
 )
 
 _NONE = "(none)"
+_DEFAULT_NAME = "hkl"
+# Sampling points auto-filled the moment an axis gets a non-zero direction.
+_DEFAULT_AXIS_POINTS = 100
 
 # Explicit labels for the single-character RADIATION codes; default is Neutron.
 _RADIATION_CHOICES: list[tuple[str, str]] = [
@@ -37,6 +42,16 @@ _RADIATION_CHOICES: list[tuple[str, str]] = [
     ("Electron", "E"),
 ]
 _RADIATION_DEFAULT = "N"
+
+# One-click 2-D slices through the origin: (NAME, X_AXIS dir, Y_AXIS dir). The
+# third axis is zeroed, so each is a plane that yields a .ppm.
+_SLICE_EXTENT = 5.0
+_Dir = tuple[float, float, float]
+_SLICE_PRESETS: list[tuple[str, _Dir, _Dir]] = [
+    ("hk0", (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)),
+    ("h0l", (1.0, 0.0, 0.0), (0.0, 0.0, 1.0)),
+    ("0kl", (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
+]
 
 
 def _vector_boxes() -> list[QDoubleSpinBox]:
@@ -59,11 +74,12 @@ def _row(*widgets: QWidget) -> QWidget:
 
 
 class ScattyConfigForm(QWidget):
-    def __init__(
-        self, parent: QWidget | None = None, *, embed_name: bool = True
-    ) -> None:
+    # Emitted when a quick 2-D slice button is pressed (the fields are filled
+    # first); the window connects this to "run scatty".
+    run_requested = pyqtSignal()
+
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._embed_name = embed_name
 
         layout = QVBoxLayout(self)
         layout.addWidget(self._build_pattern_group())
@@ -85,12 +101,9 @@ class ScattyConfigForm(QWidget):
         group = QGroupBox("Scattering pattern")
         form = QFormLayout(group)
 
-        self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText(
-            "input-file stem; also used in output filenames"
-        )
-        if self._embed_name:
-            form.addRow("NAME", self.name_edit)
+        self.name_edit = QLineEdit(_DEFAULT_NAME)
+        self.name_edit.setPlaceholderText("NAME - goes in the output filenames")
+        form.addRow("NAME", self.name_edit)
 
         self.centre_boxes = _vector_boxes()
         form.addRow("CENTRE (hkl)", _row(*self.centre_boxes))
@@ -104,8 +117,25 @@ class ScattyConfigForm(QWidget):
             self.axis_boxes[key] = boxes
             self.axis_points[key] = points
             for box in boxes:
-                box.valueChanged.connect(lambda _v, k=key: self._sync_axis_points(k))
+                box.valueChanged.connect(
+                    lambda _v, k=key: self._sync_axis_points(k, autofill=True)
+                )
             form.addRow(key, _row(*boxes, QLabel("points p:"), points))
+
+        slice_row = QHBoxLayout()
+        slice_row.setContentsMargins(0, 0, 0, 0)
+        for name, _x, _y in _SLICE_PRESETS:
+            button = QPushButton(name)
+            button.setToolTip(
+                f"Fill in a {name} plane through the origin and run Scatty (.ppm)"
+            )
+            button.clicked.connect(
+                lambda _checked, kind=name: self._apply_slice_preset(kind)
+            )
+            slice_row.addWidget(button)
+        holder = QWidget()
+        holder.setLayout(slice_row)
+        form.addRow("Quick 2-D slices", holder)
 
         self.radiation_combo = QComboBox()
         for label, code in _RADIATION_CHOICES:
@@ -215,15 +245,43 @@ class ScattyConfigForm(QWidget):
         self.ppm_min.setEnabled(on)
         self.ppm_max.setEnabled(on)
 
-    def _sync_axis_points(self, key: str) -> None:
+    def _sync_axis_points(self, key: str, *, autofill: bool = False) -> None:
         # A zero vector does nothing in Scatty regardless of point count
         # (it collapses that dimension either way) - disable and zero the
-        # points box so a config like "Z_AXIS 0 0 0 60" can't be built.
+        # points box so a config like "Z_AXIS 0 0 0 60" can't be built. When
+        # the user first gives an axis a direction, default it to a usable
+        # number of sampling points.
         is_zero_vector = not any(box.value() for box in self.axis_boxes[key])
         points = self.axis_points[key]
         points.setEnabled(not is_zero_vector)
         if is_zero_vector:
             points.setValue(0)
+        elif autofill and points.value() == 0:
+            points.setValue(_DEFAULT_AXIS_POINTS)
+
+    def _apply_slice_preset(self, kind: str) -> None:
+        """Fill CENTRE / axes / PPM_OUTPUT for a standard 2-D plane through the
+        origin, then ask the window to run Scatty."""
+        preset = next((p for p in _SLICE_PRESETS if p[0] == kind), None)
+        if preset is None:
+            return
+        name, x_dir, y_dir = preset
+        self.name_edit.setText(name)
+        for box in self.centre_boxes:
+            box.setValue(0.0)
+        vectors = {
+            "X_AXIS": tuple(c * _SLICE_EXTENT for c in x_dir),
+            "Y_AXIS": tuple(c * _SLICE_EXTENT for c in y_dir),
+            "Z_AXIS": (0.0, 0.0, 0.0),
+        }
+        for axis_key, vec in vectors.items():
+            for box, value in zip(self.axis_boxes[axis_key], vec, strict=True):
+                box.setValue(value)
+            self.axis_points[axis_key].setValue(_DEFAULT_AXIS_POINTS if any(vec) else 0)
+            self._sync_axis_points(axis_key)
+        self.ppm_output_cb.setChecked(True)
+        self._on_ppm_output_toggled()
+        self.run_requested.emit()
 
     # --- ScattyConfig <-> widgets -------------------------------------
 

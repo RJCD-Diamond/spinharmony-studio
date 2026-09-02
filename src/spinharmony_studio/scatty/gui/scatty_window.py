@@ -66,9 +66,14 @@ class ScattyWindow(QMainWindow):
         self._last_output_mtime: float | None = None
         self._checked_executable = False
 
-        # The config's NAME doubles as the input-file stem; the window shows it
-        # in the top bar rather than buried (and collapsible) in the form.
-        self.config_form = ScattyConfigForm(embed_name=False)
+        # The input-file stem (matches the spinvert title / the atoms+spins
+        # files) is separate from the config's NAME; it lives in the top bar,
+        # NAME lives in the form and feeds the output filenames.
+        self.stem_edit = QLineEdit()
+        self.stem_edit.setPlaceholderText(
+            "input-file stem: <stem>_atoms_NN.txt / <stem>_spins_NN.txt"
+        )
+        self.config_form = ScattyConfigForm()
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -89,6 +94,8 @@ class ScattyWindow(QMainWindow):
         form.ppm_output_cb.toggled.connect(self._push_ppm_style)
         form.ppm_min.valueChanged.connect(self._push_ppm_style)
         form.ppm_max.valueChanged.connect(self._push_ppm_style)
+        # Quick 2-D slice buttons fill the form, then ask to run.
+        form.run_requested.connect(self._run_scatty)
 
         # Two blades: configuration (left) and the scattering plot (right).
         self.blades = BladeSplitter(
@@ -150,11 +157,12 @@ class ScattyWindow(QMainWindow):
         row.addWidget(browse)
         layout.addLayout(row)
 
-        # The input-file stem is the config's NAME (same as the spinvert title).
-        name_row = QHBoxLayout()
-        name_row.addWidget(QLabel("Name / input file stem"))
-        name_row.addWidget(self.config_form.name_edit, stretch=1)
-        layout.addLayout(name_row)
+        # The input-file stem (usually the spinvert title); NAME is edited in
+        # the form and only affects Scatty's output filenames.
+        stem_row = QHBoxLayout()
+        stem_row.addWidget(QLabel("Input file stem"))
+        stem_row.addWidget(self.stem_edit, stretch=1)
+        layout.addLayout(stem_row)
 
         buttons = QHBoxLayout()
         self.save_button = QPushButton("Save config")
@@ -257,7 +265,7 @@ class ScattyWindow(QMainWindow):
         self.workdir_edit.setText(path)
         if changed:
             if stem:
-                self.config_form.name_edit.setText(stem)
+                self.stem_edit.setText(stem)
             # An existing scatty_config.txt in the folder wins over the seed.
             self._maybe_autoload_config()
         self._poll_output(force=True)
@@ -265,8 +273,7 @@ class ScattyWindow(QMainWindow):
     # --- working directory --------------------------------------------
 
     def _current_stem(self) -> str:
-        # The config's NAME is the input-file stem.
-        return self.config_form.name_edit.text().strip()
+        return self.stem_edit.text().strip()
 
     def _browse_workdir(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "Select working directory")
@@ -431,10 +438,10 @@ class ScattyWindow(QMainWindow):
         if not stem:
             QMessageBox.warning(
                 self,
-                "No name",
-                "Enter a Name. Scatty is run as  ./scatty <name>  and reads "
-                "<name>_atoms_NN.txt / <name>_spins_NN.txt from the working "
-                "directory.",
+                "No input stem",
+                "Enter an input file stem. Scatty is run as  ./scatty <stem>  "
+                "and reads <stem>_atoms_NN.txt / <stem>_spins_NN.txt from the "
+                "working directory.",
             )
             return
         if not any(workdir.glob(f"{stem}_atoms_*.txt")) and not any(
@@ -548,34 +555,24 @@ class ScattyWindow(QMainWindow):
         if workdir is None:
             return
         stem = self._current_stem()
-        skip = ("_sc_ppm_scale.txt", "_sc_list.txt", "_scatty_info.txt")
-        # Highest priority first: the 2-D grid (drawn with the configured
-        # colourmap + a Python colour bar), then a rendered image (never the
-        # colour-bar strip), then any other data table Scatty wrote.
-        groups: list[list[Path]] = []
-        if stem:
-            groups.append(sorted(workdir.glob(f"{stem}*_sc.txt")))
-            groups.append(
-                [
-                    p
-                    for p in sorted(workdir.glob(f"{stem}*.ppm"))
-                    if not p.name.endswith("_colourbar.ppm")
-                ]
-            )
-            groups.append(
-                [
-                    p
-                    for p in sorted(workdir.glob(f"{stem}*.txt"))
-                    if not p.name.endswith(skip)
-                ]
-            )
-        groups.append(
-            [
+
+        def _sc_ppm(pattern: str) -> list[Path]:
+            return [
                 p
-                for p in sorted(workdir.glob("*.ppm"))
+                for p in sorted(workdir.glob(pattern))
                 if not p.name.endswith("_colourbar.ppm")
             ]
-        )
+
+        # Only genuine Scatty scattering output, most useful first: the 2-D
+        # grid (drawn with the configured colourmap + a Python colour bar),
+        # then a rendered image. Anything else in the folder (envelope / fit /
+        # data files, spinvert plots) is deliberately ignored.
+        groups: list[list[Path]] = []
+        if stem:
+            groups.append(sorted(workdir.glob(f"{stem}_*_sc.txt")))
+            groups.append(_sc_ppm(f"{stem}_*_sc.ppm"))
+        groups.append(sorted(workdir.glob("*_sc.txt")))
+        groups.append(_sc_ppm("*_sc.ppm"))
 
         latest: Path | None = None
         latest_mtime = -1.0
