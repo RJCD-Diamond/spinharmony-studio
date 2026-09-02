@@ -56,10 +56,10 @@ class PlotStyle:
     legend_loc: LegendLocType = "best"
 
     intensity_xlabel: str = "Q"
-    intensity_ylabel: str = "Intensity"
+    intensity_ylabel: str = "Intensity (barns/sr/Atom)"
     difference_ylabel: str = "Difference"
     correlation_xlabel: str = "Radial distance (Angstrom)"
-    correlation_ylabel: str = "Spin correlation  <S_i . S_j>"
+    correlation_ylabel: str = "Spin correlation  <$S_i$ . $S_j$>"
 
     data_label: str = "Data"
     fit_label: str = "Fit"
