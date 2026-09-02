@@ -43,7 +43,8 @@ dev = [
 
 [project.scripts]
 spinharmony-studio = "spinharmony_studio.__main__:main"
-spinvert-gui = "spinharmony_studio.gui.app:main"
+spinvert-gui = "spinharmony_studio.spinvert.gui.main_window:main"
+scatty-gui = "spinharmony_studio.scatty.gui.app:main"
 
 [project.urls]
 GitHub = "https://github.com/DiamondLightSource/spinharmony-studio"

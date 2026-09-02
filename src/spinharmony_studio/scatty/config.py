@@ -18,12 +18,12 @@ from spinharmony_studio.config_base import (
 
 Radiation = Literal["X", "N", "E"]
 Centring = Literal["P", "I", "F", "R", "A", "B", "C", "H"]
-SummationType = Literal["PARALLEL", "SPHERE"]
+SummationType = Literal["parallel", "sphere"]
 Colourmap = Literal["default", "heat", "jet", "grey1", "grey2"]
-# The 11 Laue classes, written as Scatty expects them.
+# The 11 Laue classes, written exactly as Scatty's parser expects them.
 LaueClass = Literal[
-    "m-3m",
-    "m-3",
+    "m3m",
+    "m3",
     "6|mmm",
     "6|m",
     "-3m",
@@ -34,6 +34,17 @@ LaueClass = Literal[
     "2|m",
     "-1",
 ]
+# Scatty also accepts the hyphenated cubic spellings; normalise them on read.
+_LAUE_ALIASES = {"m-3m": "m3m", "m-3": "m3"}
+
+
+def _fmt_1dp(value: float) -> str:
+    """Compact number that always carries a decimal point (``0`` -> ``0.0``),
+    matching how PPM_RANGE is written in the example configs."""
+    text = f"{value:.10g}"
+    if "." not in text and "e" not in text and "E" not in text:
+        text += ".0"
+    return text
 
 
 class ScattyConfigWarning(UserWarning):
@@ -44,15 +55,17 @@ class ScattyConfigWarning(UserWarning):
 class ScatteringAxis(BaseModel):
     """One axis of the calculated pattern: a reciprocal-space vector in hkl
     units and the number of sampling points ``p``. Scatty calculates ``2p+1``
-    points from ``CENTRE - vector`` to ``CENTRE + vector``. A zero axis
-    (``0 0 0 0``) drops that dimension, so a plane or a line is calculated."""
+    points from ``CENTRE - vector`` to ``CENTRE + vector``. An axis with a
+    zero vector *or* zero points drops that dimension (Scatty collapses a
+    zero-length axis regardless of its point count), so a plane or a line is
+    calculated."""
 
     vector: tuple[float, float, float] = (0.0, 0.0, 0.0)
     points: int = Field(default=0, ge=0)
 
     @property
     def is_zero(self) -> bool:
-        return self.points == 0 and not any(self.vector)
+        return self.points == 0 or not any(self.vector)
 
 
 class ScattyConfig(FortranConfig):
@@ -67,7 +80,7 @@ class ScattyConfig(FortranConfig):
     centre: tuple[float, float, float] = Field(default=(0.0, 0.0, 0.0), alias="CENTRE")
     window: int = Field(default=3, alias="WINDOW")
     cutoff: int = Field(default=2, alias="CUTOFF", ge=0)
-    sum_type: SummationType = Field(default="PARALLEL", alias="SUM")
+    sum_type: SummationType = Field(default="parallel", alias="SUM")
     mag_only: bool = Field(default=False, alias="MAG_ONLY")
     temp_subtract: bool = Field(default=False, alias="TEMP_SUBTRACT")
     supercell_bragg_output: bool = Field(default=False, alias="SUPERCELL_BRAGG_OUTPUT")
@@ -81,9 +94,28 @@ class ScattyConfig(FortranConfig):
     remove_bragg: Centring | None = Field(default=None, alias="REMOVE_BRAGG")
     symmetry: LaueClass | None = Field(default=None, alias="SYMMETRY")
     ppm_range: tuple[float, float] | None = Field(default=None, alias="PPM_RANGE")
-    ppm_colourmap: Colourmap | None = Field(default="heat", alias="PPM_COLOURMAP")
+    ppm_colourmap: Colourmap | None = Field(default=None, alias="PPM_COLOURMAP")
 
     # --- Cross-field validation ---
+
+    @model_validator(mode="after")
+    def _default_ppm_range(self) -> "ScattyConfig":
+        # PPM_OUTPUT implies a PPM_RANGE; default it to 0..1 (the user can change
+        # it), matching the example configs.
+        if self.ppm_output and self.ppm_range is None:
+            self.ppm_range = (0.0, 1.0)
+        return self
+
+    @model_validator(mode="after")
+    def _normalise_axes(self) -> "ScattyConfig":
+        # Scatty collapses an axis with an all-zero vector regardless of its
+        # point count (scatty.f90:144), so a stray point count there is
+        # meaningless; don't write it out (e.g. "Z_AXIS 0 0 0 60" -> "0 0 0 0").
+        for key in ("x_axis", "y_axis", "z_axis"):
+            axis: ScatteringAxis = getattr(self, key)
+            if not any(axis.vector) and axis.points != 0:
+                setattr(self, key, ScatteringAxis())
+        return self
 
     @model_validator(mode="after")
     def _check_window(self) -> "ScattyConfig":
@@ -116,10 +148,28 @@ class ScattyConfig(FortranConfig):
                     warnings.warn(
                         "The non-zero scattering axes do not appear to be "
                         f"mutually orthogonal (dot product {dot:g}); Scatty "
-                        "expects X/Y/Z to be orthogonal.",
+                        "expects X/Y/Z to be orthogonal, and its write_fit "
+                        "step aborts with this same warning, writing no "
+                        "_sc.txt / _sc.vtk / .ppm output.",
                         ScattyConfigWarning,
                         stacklevel=2,
                     )
+        return self
+
+    @model_validator(mode="after")
+    def _check_ppm_plane(self) -> "ScattyConfig":
+        if self.ppm_output:
+            active = sum(
+                not axis.is_zero for axis in (self.x_axis, self.y_axis, self.z_axis)
+            )
+            if active != 2:
+                warnings.warn(
+                    "PPM_OUTPUT writes a .ppm image only for a 2-D plane "
+                    f"(exactly two active axes); this configuration has "
+                    f"{active}, so Scatty will not write a .ppm file.",
+                    ScattyConfigWarning,
+                    stacklevel=2,
+                )
         return self
 
     @model_validator(mode="after")
@@ -160,7 +210,7 @@ class ScattyConfig(FortranConfig):
             elif keyword == "CUTOFF":
                 data["CUTOFF"] = int(values[0])
             elif keyword == "SUM":
-                data["SUM"] = values[0].upper()
+                data["SUM"] = values[0].lower()
             elif keyword in (
                 "MAG_ONLY",
                 "TEMP_SUBTRACT",
@@ -172,7 +222,7 @@ class ScattyConfig(FortranConfig):
                     values and values[0].strip().upper() in ("0", "FALSE", "NO", "OFF")
                 )
             elif keyword == "SYMMETRY":
-                data["SYMMETRY"] = values[0]
+                data["SYMMETRY"] = _LAUE_ALIASES.get(values[0], values[0])
             elif keyword == "PPM_RANGE":
                 require_n(values, 2, keyword)
                 data["PPM_RANGE"] = tuple(float(v) for v in values)
@@ -193,47 +243,39 @@ class ScattyConfig(FortranConfig):
 
     def _config_lines(self) -> list[str]:
         kw = self.keyword
-        lines = [kw("NAME", self.name)]
-
-        if any(self.centre):
-            lines.append(kw("CENTRE", self.centre))
-
-        for keyword, axis in (
-            ("X_AXIS", self.x_axis),
-            ("Y_AXIS", self.y_axis),
-            ("Z_AXIS", self.z_axis),
-        ):
-            lines.append(kw(keyword, axis.vector, axis.points))
-
+        lines = [
+            kw("NAME", self.name),
+            kw("CENTRE", self.centre),
+            kw("X_AXIS", self.x_axis.vector, self.x_axis.points),
+            kw("Y_AXIS", self.y_axis.vector, self.y_axis.points),
+            kw("Z_AXIS", self.z_axis.vector, self.z_axis.points),
+            kw("WINDOW", self.window),
+        ]
+        if self.cutoff != 2:
+            lines.append(kw("CUTOFF", self.cutoff))
+        if self.ppm_output:
+            lines.append(kw("PPM_OUTPUT"))
+        if self.ppm_range is not None:
+            lo, hi = self.ppm_range
+            lines.append(f"PPM_RANGE {_fmt_1dp(lo)} {_fmt_1dp(hi)}")
+        if self.ppm_colourmap is not None:
+            lines.append(kw("PPM_COLOURMAP", self.ppm_colourmap))
+        lines.append(kw("SUM", self.sum_type))
         lines.append(kw("RADIATION", self.radiation))
-
+        if self.remove_bragg is not None:
+            lines.append(kw("REMOVE_BRAGG", self.remove_bragg))
         if self.expansion_max_error is not None:
             lines.append(kw("EXPANSION_MAX_ERROR", self.expansion_max_error))
         if self.expansion_order is not None:
             lines.append(kw("EXPANSION_ORDER", self.expansion_order))
-        if self.remove_bragg is not None:
-            lines.append(kw("REMOVE_BRAGG", self.remove_bragg))
-        if self.window != 3:
-            lines.append(kw("WINDOW", self.window))
-        if self.cutoff != 2:
-            lines.append(kw("CUTOFF", self.cutoff))
-        if self.sum_type != "PARALLEL":
-            lines.append(kw("SUM", self.sum_type))
+        if self.symmetry is not None:
+            lines.append(kw("SYMMETRY", self.symmetry))
         if self.mag_only:
             lines.append(kw("MAG_ONLY"))
         if self.temp_subtract:
             lines.append(kw("TEMP_SUBTRACT"))
-        if self.symmetry is not None:
-            lines.append(kw("SYMMETRY", self.symmetry))
         if self.supercell_bragg_output:
             lines.append(kw("SUPERCELL_BRAGG_OUTPUT"))
-        if self.ppm_output:
-            lines.append(kw("PPM_OUTPUT"))
-        if self.ppm_range is not None:
-            lines.append(kw("PPM_RANGE", self.ppm_range))
-        if self.ppm_colourmap is not None:
-            lines.append(kw("PPM_COLOURMAP", self.ppm_colourmap))
-
         return lines
 
     def save_to_file(self, path: str | Path) -> Path:

@@ -26,14 +26,15 @@ class SpinvertRunner(QObject):
         self.process.finished.connect(self._on_finished)
 
     def start(self, executable: str, title: str, workdir: str) -> None:
-        # These programs are invoked as `<program> <input file name stem>`.
-        # Some builds take the stem as a command-line argument, others prompt
-        # for it on stdin, so we supply it both ways (see _on_started).
-        self._pending_stem = title
+        # spinvert / spincorrel / scatty are all invoked as
+        # `<program> <input file name stem>`; some builds take the stem as a
+        # command-line argument, others prompt for it on stdin, so we supply it
+        # both ways (see _on_started).
+        self._pending_stem = title or None
         self._done = False
         self.process.setWorkingDirectory(workdir)
         self.process.setProgram(executable)
-        self.process.setArguments([title])
+        self.process.setArguments([title] if title else [])
         self.process.start()
 
     def _on_started(self) -> None:

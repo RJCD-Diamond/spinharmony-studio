@@ -1,0 +1,337 @@
+"""Widget for editing every field of a :class:`ScattyConfig`."""
+
+import warnings
+from typing import get_args
+
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDoubleSpinBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
+
+from spinharmony_studio.scatty.config import (
+    Centring,
+    Colourmap,
+    LaueClass,
+    ScatteringAxis,
+    ScattyConfig,
+    ScattyConfigWarning,
+    SummationType,
+)
+
+_NONE = "(none)"
+
+# Explicit labels for the single-character RADIATION codes; default is Neutron.
+_RADIATION_CHOICES: list[tuple[str, str]] = [
+    ("X-ray", "X"),
+    ("Neutron", "N"),
+    ("Electron", "E"),
+]
+_RADIATION_DEFAULT = "N"
+
+
+def _vector_boxes() -> list[QDoubleSpinBox]:
+    boxes = []
+    for _ in range(3):
+        box = QDoubleSpinBox()
+        box.setRange(-1e4, 1e4)
+        box.setDecimals(4)
+        boxes.append(box)
+    return boxes
+
+
+def _row(*widgets: QWidget) -> QWidget:
+    holder = QWidget()
+    layout = QHBoxLayout(holder)
+    layout.setContentsMargins(0, 0, 0, 0)
+    for w in widgets:
+        layout.addWidget(w)
+    return holder
+
+
+class ScattyConfigForm(QWidget):
+    def __init__(
+        self, parent: QWidget | None = None, *, embed_name: bool = True
+    ) -> None:
+        super().__init__(parent)
+        self._embed_name = embed_name
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(self._build_pattern_group())
+        layout.addWidget(self._build_expansion_group())
+        layout.addWidget(self._build_interpolation_group())
+        layout.addWidget(self._build_options_group())
+        layout.addWidget(self._build_image_group())
+        layout.addStretch()
+
+        self._on_expmax_toggled()
+        self._on_exporder_toggled()
+        self._on_ppm_output_toggled()
+        for key in ("X_AXIS", "Y_AXIS", "Z_AXIS"):
+            self._sync_axis_points(key)
+
+    # --- construction -----------------------------------------------------
+
+    def _build_pattern_group(self) -> QGroupBox:
+        group = QGroupBox("Scattering pattern")
+        form = QFormLayout(group)
+
+        self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText(
+            "input-file stem; also used in output filenames"
+        )
+        if self._embed_name:
+            form.addRow("NAME", self.name_edit)
+
+        self.centre_boxes = _vector_boxes()
+        form.addRow("CENTRE (hkl)", _row(*self.centre_boxes))
+
+        self.axis_boxes: dict[str, list[QDoubleSpinBox]] = {}
+        self.axis_points: dict[str, QSpinBox] = {}
+        for key in ("X_AXIS", "Y_AXIS", "Z_AXIS"):
+            boxes = _vector_boxes()
+            points = QSpinBox()
+            points.setRange(0, 100_000)
+            self.axis_boxes[key] = boxes
+            self.axis_points[key] = points
+            for box in boxes:
+                box.valueChanged.connect(lambda _v, k=key: self._sync_axis_points(k))
+            form.addRow(key, _row(*boxes, QLabel("points p:"), points))
+
+        self.radiation_combo = QComboBox()
+        for label, code in _RADIATION_CHOICES:
+            self.radiation_combo.addItem(label, code)
+        self.radiation_combo.setCurrentIndex(
+            self.radiation_combo.findData(_RADIATION_DEFAULT)
+        )
+        form.addRow("RADIATION", self.radiation_combo)
+        return group
+
+    def _build_expansion_group(self) -> QGroupBox:
+        group = QGroupBox("Displacement expansion (needed for displacive disorder)")
+        form = QFormLayout(group)
+
+        self.expmax_cb = QCheckBox("EXPANSION_MAX_ERROR")
+        self.expmax_cb.toggled.connect(self._on_expmax_toggled)
+        self.expmax_spin = QDoubleSpinBox()
+        self.expmax_spin.setRange(1e-9, 1.0)
+        self.expmax_spin.setDecimals(9)
+        self.expmax_spin.setValue(0.05)
+        form.addRow(self.expmax_cb, self.expmax_spin)
+
+        self.exporder_cb = QCheckBox("EXPANSION_ORDER")
+        self.exporder_cb.toggled.connect(self._on_exporder_toggled)
+        self.exporder_spin = QSpinBox()
+        self.exporder_spin.setRange(1, 100)
+        self.exporder_spin.setValue(10)
+        form.addRow(self.exporder_cb, self.exporder_spin)
+        return group
+
+    def _build_interpolation_group(self) -> QGroupBox:
+        group = QGroupBox("Interpolation and summation")
+        form = QFormLayout(group)
+
+        self.window_spin = QSpinBox()
+        self.window_spin.setRange(0, 50)
+        self.window_spin.setValue(3)
+        self.window_spin.setToolTip("0 = nearest-neighbour; otherwise an integer >= 2")
+        form.addRow("WINDOW (m)", self.window_spin)
+
+        self.cutoff_spin = QSpinBox()
+        self.cutoff_spin.setRange(0, 50)
+        self.cutoff_spin.setValue(2)
+        form.addRow("CUTOFF (m')", self.cutoff_spin)
+
+        self.sum_combo = QComboBox()
+        self.sum_combo.addItems(list(get_args(SummationType)))
+        form.addRow("SUM", self.sum_combo)
+        return group
+
+    def _build_options_group(self) -> QGroupBox:
+        group = QGroupBox("Options")
+        form = QFormLayout(group)
+
+        self.remove_bragg_combo = QComboBox()
+        self.remove_bragg_combo.addItems([_NONE, *get_args(Centring)])
+        form.addRow("REMOVE_BRAGG (centring)", self.remove_bragg_combo)
+
+        self.symmetry_combo = QComboBox()
+        self.symmetry_combo.addItems([_NONE, *get_args(LaueClass)])
+        form.addRow("SYMMETRY (Laue class)", self.symmetry_combo)
+
+        self.mag_only_cb = QCheckBox("MAG_ONLY (exclude nuclear scattering)")
+        self.temp_subtract_cb = QCheckBox(
+            "TEMP_SUBTRACT (subtract ideal paramagnetic background)"
+        )
+        form.addRow("", self.mag_only_cb)
+        form.addRow("", self.temp_subtract_cb)
+        return group
+
+    def _build_image_group(self) -> QGroupBox:
+        group = QGroupBox("Image / Bragg output")
+        form = QFormLayout(group)
+
+        self.supercell_cb = QCheckBox("SUPERCELL_BRAGG_OUTPUT (VTK file)")
+        form.addRow("", self.supercell_cb)
+
+        self.ppm_output_cb = QCheckBox("PPM_OUTPUT (2-D plots only)")
+        self.ppm_output_cb.toggled.connect(self._on_ppm_output_toggled)
+        form.addRow("", self.ppm_output_cb)
+
+        # PPM_RANGE always accompanies PPM_OUTPUT; default 0..1, editable.
+        self.ppm_min = QDoubleSpinBox()
+        self.ppm_max = QDoubleSpinBox()
+        for box in (self.ppm_min, self.ppm_max):
+            box.setRange(-1e9, 1e9)
+            box.setDecimals(6)
+        self.ppm_min.setValue(0.0)
+        self.ppm_max.setValue(1.0)
+        form.addRow("PPM_RANGE", _row(self.ppm_min, QLabel("to"), self.ppm_max))
+
+        self.ppm_cmap_combo = QComboBox()
+        self.ppm_cmap_combo.addItems([_NONE, *get_args(Colourmap)])
+        form.addRow("PPM_COLOURMAP", self.ppm_cmap_combo)
+        return group
+
+    # --- interactivity --------------------------------------------------
+
+    def _on_expmax_toggled(self) -> None:
+        self.expmax_spin.setEnabled(self.expmax_cb.isChecked())
+
+    def _on_exporder_toggled(self) -> None:
+        self.exporder_spin.setEnabled(self.exporder_cb.isChecked())
+
+    def _on_ppm_output_toggled(self) -> None:
+        on = self.ppm_output_cb.isChecked()
+        self.ppm_min.setEnabled(on)
+        self.ppm_max.setEnabled(on)
+
+    def _sync_axis_points(self, key: str) -> None:
+        # A zero vector does nothing in Scatty regardless of point count
+        # (it collapses that dimension either way) - disable and zero the
+        # points box so a config like "Z_AXIS 0 0 0 60" can't be built.
+        is_zero_vector = not any(box.value() for box in self.axis_boxes[key])
+        points = self.axis_points[key]
+        points.setEnabled(not is_zero_vector)
+        if is_zero_vector:
+            points.setValue(0)
+
+    # --- ScattyConfig <-> widgets -------------------------------------
+
+    @staticmethod
+    def _triple(boxes: list[QDoubleSpinBox]) -> tuple[float, float, float]:
+        return (boxes[0].value(), boxes[1].value(), boxes[2].value())
+
+    def to_config(self) -> ScattyConfig:
+        data: dict = {
+            "NAME": self.name_edit.text().strip(),
+            "CENTRE": self._triple(self.centre_boxes),
+            "RADIATION": self.radiation_combo.currentData(),
+            "WINDOW": self.window_spin.value(),
+            "CUTOFF": self.cutoff_spin.value(),
+            "SUM": self.sum_combo.currentText(),
+            "MAG_ONLY": self.mag_only_cb.isChecked(),
+            "TEMP_SUBTRACT": self.temp_subtract_cb.isChecked(),
+            "SUPERCELL_BRAGG_OUTPUT": self.supercell_cb.isChecked(),
+            "PPM_OUTPUT": self.ppm_output_cb.isChecked(),
+        }
+        for key in ("X_AXIS", "Y_AXIS", "Z_AXIS"):
+            data[key] = {
+                "vector": self._triple(self.axis_boxes[key]),
+                "points": self.axis_points[key].value(),
+            }
+        if self.expmax_cb.isChecked():
+            data["EXPANSION_MAX_ERROR"] = self.expmax_spin.value()
+        if self.exporder_cb.isChecked():
+            data["EXPANSION_ORDER"] = self.exporder_spin.value()
+        if self.remove_bragg_combo.currentIndex() > 0:
+            data["REMOVE_BRAGG"] = self.remove_bragg_combo.currentText()
+        if self.symmetry_combo.currentIndex() > 0:
+            data["SYMMETRY"] = self.symmetry_combo.currentText()
+        if self.ppm_output_cb.isChecked():
+            data["PPM_RANGE"] = (self.ppm_min.value(), self.ppm_max.value())
+        if self.ppm_cmap_combo.currentIndex() > 0:
+            data["PPM_COLOURMAP"] = self.ppm_cmap_combo.currentText()
+        return ScattyConfig(**data)
+
+    def build_config_with_warnings(self) -> tuple[ScattyConfig, list[str]]:
+        """Build a :class:`ScattyConfig`, also returning any non-fatal
+        :class:`ScattyConfigWarning` messages raised while validating it
+        (e.g. non-orthogonal axes, or PPM_OUTPUT without a 2-D plane)."""
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            config = self.to_config()
+        messages = [
+            str(w.message)
+            for w in caught
+            if issubclass(w.category, ScattyConfigWarning)
+        ]
+        return config, messages
+
+    def try_build_config(self, parent: QWidget | None = None) -> ScattyConfig | None:
+        try:
+            config, config_warnings = self.build_config_with_warnings()
+        except Exception as exc:  # pydantic.ValidationError or ValueError
+            QMessageBox.critical(
+                parent or self, "Invalid scatty configuration", str(exc)
+            )
+            return None
+        if config_warnings:
+            QMessageBox.warning(
+                parent or self,
+                "Scatty configuration warning",
+                "\n\n".join(config_warnings),
+            )
+        return config
+
+    def load_config(self, config: ScattyConfig) -> None:
+        self.name_edit.setText(config.name)
+        for box, value in zip(self.centre_boxes, config.centre, strict=True):
+            box.setValue(value)
+        for key, axis in (
+            ("X_AXIS", config.x_axis),
+            ("Y_AXIS", config.y_axis),
+            ("Z_AXIS", config.z_axis),
+        ):
+            for box, value in zip(self.axis_boxes[key], axis.vector, strict=True):
+                box.setValue(value)
+            self.axis_points[key].setValue(axis.points)
+            self._sync_axis_points(key)
+        radiation_idx = self.radiation_combo.findData(config.radiation)
+        if radiation_idx >= 0:
+            self.radiation_combo.setCurrentIndex(radiation_idx)
+        self.window_spin.setValue(config.window)
+        self.cutoff_spin.setValue(config.cutoff)
+        self.sum_combo.setCurrentText(config.sum_type)
+        self.mag_only_cb.setChecked(config.mag_only)
+        self.temp_subtract_cb.setChecked(config.temp_subtract)
+        self.supercell_cb.setChecked(config.supercell_bragg_output)
+        self.ppm_output_cb.setChecked(config.ppm_output)
+        self._on_ppm_output_toggled()
+
+        self.expmax_cb.setChecked(config.expansion_max_error is not None)
+        if config.expansion_max_error is not None:
+            self.expmax_spin.setValue(config.expansion_max_error)
+        self.exporder_cb.setChecked(config.expansion_order is not None)
+        if config.expansion_order is not None:
+            self.exporder_spin.setValue(config.expansion_order)
+
+        self.remove_bragg_combo.setCurrentText(config.remove_bragg or _NONE)
+        self.symmetry_combo.setCurrentText(config.symmetry or _NONE)
+
+        if config.ppm_range is not None:
+            self.ppm_min.setValue(config.ppm_range[0])
+            self.ppm_max.setValue(config.ppm_range[1])
+        self.ppm_cmap_combo.setCurrentText(config.ppm_colourmap or _NONE)
+
+
+__all__ = ["ScattyConfigForm", "ScatteringAxis"]

@@ -15,10 +15,16 @@ __pycache__/
 *_form_fac_sq*.txt
 *_scf*.txt
 *_scf*.png
+*_sc*.txt
+*.ppm
+*.vtk
+*.png
 *_plot.png
+*_scatty_info.txt
+*scatty_config.txt
 *programs/
-*scatty/
-*spinvert/
+/scatty/
+/spinvert/
 
 # Distribution / packaging
 .Python
