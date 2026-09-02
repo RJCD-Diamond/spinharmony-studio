@@ -14,8 +14,8 @@ from matplotlib.axes import Axes
 from matplotlib.typing import LegendLocType
 
 Vector = np.ndarray
-DataTriple = tuple[Vector, Vector, Vector]  # x, y, y-error
-FitPair = tuple[Vector, Vector]  # x, y
+XYEData = tuple[Vector, Vector, Vector]  # x, y, y-error
+XYData = tuple[Vector, Vector]  # x, y
 
 
 @dataclass(frozen=True)
@@ -99,8 +99,8 @@ def _plot_series(
 def draw_data_and_fit(
     ax_top: Axes,
     ax_bottom: Axes,
-    data: DataTriple | None,
-    fit: FitPair | None,
+    data: XYEData | None,
+    fit: XYData | None,
     *,
     style: PlotStyle = DEFAULT_STYLE,
     fit_label: str | None = None,
@@ -133,8 +133,8 @@ def draw_data_and_fit(
 
 def draw_difference(
     ax: Axes,
-    data: DataTriple | None,
-    fit: FitPair | None,
+    data: XYEData | None,
+    fit: XYData | None,
     *,
     style: PlotStyle = DEFAULT_STYLE,
 ) -> None:
@@ -162,7 +162,7 @@ def draw_difference(
 
 def draw_correlation(
     ax: Axes,
-    scf: DataTriple | None,
+    scf: XYEData | None,
     *,
     style: PlotStyle = DEFAULT_STYLE,
     label: str | None = None,

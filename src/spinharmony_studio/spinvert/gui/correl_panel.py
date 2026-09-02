@@ -7,8 +7,8 @@ styleable; this class only owns the Qt widget and the last-drawn state.
 
 from spinharmony_studio.spinvert.gui.mpl_panel import MplPanel
 from spinharmony_studio.spinvert.gui.plotting import (
-    DataTriple,
     PlotStyle,
+    XYEData,
     draw_correlation,
 )
 
@@ -18,11 +18,11 @@ class CorrelPanel(MplPanel):
         super().__init__(style=style, figsize=(4, 5), parent=parent)
         self.ax = self.figure.subplots()
 
-        self._scf: DataTriple | None = None
+        self._scf: XYEData | None = None
         self._label: str | None = None
         self.refresh()
 
-    def update_scf(self, scf: DataTriple | None, label: str | None = None) -> None:
+    def update_scf(self, scf: XYEData | None, label: str | None = None) -> None:
         self._scf, self._label = scf, label
         self.refresh()
 

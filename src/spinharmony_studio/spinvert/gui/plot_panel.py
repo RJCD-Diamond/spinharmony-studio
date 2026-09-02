@@ -6,9 +6,9 @@ styleable; this class only owns the Qt widget and the last-drawn state.
 
 from spinharmony_studio.spinvert.gui.mpl_panel import MplPanel
 from spinharmony_studio.spinvert.gui.plotting import (
-    DataTriple,
-    FitPair,
     PlotStyle,
+    XYData,
+    XYEData,
     draw_data_and_fit,
 )
 
@@ -21,15 +21,15 @@ class PlotPanel(MplPanel):
         )
         self.ax_diff.sharex(self.ax_data)
 
-        self._data: DataTriple | None = None
-        self._fit: FitPair | None = None
+        self._data: XYEData | None = None
+        self._fit: XYData | None = None
         self._fit_label: str | None = None
         self.refresh()
 
     def update_data_and_fit(
         self,
-        data: DataTriple | None,
-        fit: FitPair | None,
+        data: XYEData | None,
+        fit: XYData | None,
         fit_label: str | None = None,
     ) -> None:
         self._data, self._fit, self._fit_label = data, fit, fit_label
