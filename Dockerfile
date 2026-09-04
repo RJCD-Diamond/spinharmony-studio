@@ -28,8 +28,7 @@ RUN apt-get update && apt-get install -y \
 
 RUN apt-get install fonts-noto-color-emoji -y
 
-RUN apt-get install -y gcc gfortran
-
+RUN apt-get install -y gcc gfortran imagemagick
 
 # The build stage installs the context into the venv
 FROM developer AS build

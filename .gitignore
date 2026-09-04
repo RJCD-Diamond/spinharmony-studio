@@ -19,6 +19,7 @@ __pycache__/
 *.ppm
 *.vtk
 *.png
+*spindist*.txt
 *_plot.png
 *_scatty_info.txt
 *scatty_config.txt

@@ -148,8 +148,8 @@ def save_last_session(workdir: str, title: str) -> Path:
     return settings_file()
 
 
-def example_path() -> Path:
-    """Return the path to the example config file shipped with the package."""
+def example_data_dir() -> Path:
+    """Return the path to the example data directory shipped with the package."""
     return Path(__file__).parent / "examples" / "TbODCO3"
 
 
