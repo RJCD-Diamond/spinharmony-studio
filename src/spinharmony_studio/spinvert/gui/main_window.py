@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from spinharmony_studio.build import gfortran_available
 from spinharmony_studio.settings import (
     load_last_session,
     load_scatty_path,
@@ -59,6 +60,7 @@ from spinharmony_studio.spinvert.gui.executables import (
 )
 from spinharmony_studio.spinvert.gui.output_log import OutputLog
 from spinharmony_studio.spinvert.gui.plot_panel import PlotPanel
+from spinharmony_studio.spinvert.gui.setup_worker import SetupWorker
 from spinharmony_studio.spinvert.gui.spinvert_runner import SpinvertRunner
 
 # __all__ = ["main"]
@@ -88,6 +90,7 @@ class MainWindow(QMainWindow):
         self._scatty_path: str = ""
         self._checked_executable = False
         self._scatty_window: QWidget | None = None
+        self._setup_worker: SetupWorker | None = None
 
         self._last_data_mtime: float | None = None
         self._last_fit_path: Path | None = None
@@ -392,17 +395,15 @@ class MainWindow(QMainWindow):
                 self._append_log(f"Saved spinvert executable path to {where}\n")
 
     def _verify_executable_configured(self) -> None:
-        """On startup, make sure a usable spinvert executable is configured;
-        otherwise tell the user to pick one before running anything."""
+        """On startup, make sure a usable spinvert executable is configured.
+
+        If nothing has ever been configured (first run), offer to download
+        and build the whole SpinHarmony toolchain automatically. Otherwise,
+        if a path was configured but no longer resolves, just point the user
+        at the menu to fix it.
+        """
         if not self._spinvert_path:
-            QMessageBox.warning(
-                self,
-                "spinvert executable not set",
-                "No spinvert executable is configured "
-                f"(nothing saved in {settings_file()}).\n\n"
-                "Choose it via  File → “Set spinvert executable…”  "
-                "before running spinvert.",
-            )
+            self._offer_auto_setup()
             return
         if resolve_executable(self._spinvert_path) is None:
             QMessageBox.warning(
@@ -413,6 +414,86 @@ class MainWindow(QMainWindow):
                 "Choose it again via  File → "
                 "“Set spinvert executable…”  before running spinvert.",
             )
+
+    def _offer_auto_setup(self) -> None:
+        answer = QMessageBox.question(
+            self,
+            "spinvert executable not set",
+            "No SpinHarmony executables are configured "
+            f"(nothing saved in {settings_file()}).\n\n"
+            "Would you like to automatically download and build them now?\n\n"
+            "(Alternatively, choose an existing executable via  File → "
+            "“Set spinvert executable…”.)",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        if not gfortran_available():
+            QMessageBox.warning(
+                self,
+                "gfortran not found",
+                "Building SpinHarmony requires gfortran, which isn't on your "
+                "PATH.\n\n"
+                "Install it (e.g. via your system package manager, or from "
+                "https://gcc.gnu.org/wiki/GFortranBinaries) and then reopen "
+                "this dialog via  File → “Set spinvert executable…”.",
+            )
+            return
+
+        self._start_auto_setup()
+
+    def _start_auto_setup(self) -> None:
+        if self._setup_worker is not None and self._setup_worker.isRunning():
+            return
+        self.run_action.setEnabled(False)
+        self.run_correl_action.setEnabled(False)
+        self.status_label.setText("Downloading and building SpinHarmony...")
+        self._append_log("Downloading and building SpinHarmony...\n")
+
+        worker = SetupWorker(self)
+        worker.progress.connect(self._append_log)
+        worker.succeeded.connect(self._on_setup_succeeded)
+        worker.failed.connect(self._on_setup_failed)
+        self._setup_worker = worker
+        worker.start()
+
+    def _on_setup_succeeded(self, executables: dict[str, Path]) -> None:
+        self._setup_worker = None
+        self.run_action.setEnabled(True)
+        self.run_correl_action.setEnabled(True)
+        self.status_label.setText("SpinHarmony setup complete.")
+
+        spinvert_path = executables.get("spinvert")
+        if spinvert_path is not None:
+            self._set_spinvert_path(str(spinvert_path), persist=False)
+        spincorrel_path = executables.get("spincorrel")
+        if spincorrel_path is not None:
+            self._set_spincorrel_path(str(spincorrel_path), persist=False)
+        scatty_path = executables.get("scatty")
+        if scatty_path is not None:
+            self._set_scatty_path(str(scatty_path), persist=False)
+
+        QMessageBox.information(
+            self,
+            "SpinHarmony setup complete",
+            "All SpinHarmony components were downloaded and built successfully.",
+        )
+
+    def _on_setup_failed(self, message: str) -> None:
+        self._setup_worker = None
+        self.run_action.setEnabled(True)
+        self.run_correl_action.setEnabled(True)
+        self.status_label.setText("SpinHarmony setup failed.")
+        self._append_log(f"SpinHarmony setup failed: {message}\n")
+        QMessageBox.critical(
+            self,
+            "SpinHarmony setup failed",
+            f"Downloading/building SpinHarmony failed:\n\n{message}\n\n"
+            "You can set an existing executable via  File → "
+            "“Set spinvert executable…”  instead.",
+        )
 
     def _browse_scatty(self) -> None:
         start_dir = ""
@@ -933,10 +1014,9 @@ class MainWindow(QMainWindow):
 
 
 def run_spinharmony(args: Sequence[str] | None = None) -> None:
+    # Importing spinharmony_studio.settings sets the org/app name that
+    # QStandardPaths uses for settings.py's config directory.
     app = QApplication(list(args) if args is not None else sys.argv)
-    # Give QStandardPaths a stable per-user config directory for settings.py.
-    app.setOrganizationName("DiamondLightSource")
-    app.setApplicationName("spinharmony-studio")
     window = MainWindow()
     window.show()
     sys.exit(app.exec())

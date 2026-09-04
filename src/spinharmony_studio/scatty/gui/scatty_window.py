@@ -595,9 +595,9 @@ class ScattyWindow(QMainWindow):
 
 
 def main(args: Sequence[str] | None = None) -> None:
+    # Importing spinharmony_studio.settings sets the org/app name that
+    # QStandardPaths uses for settings.py's config directory.
     app = QApplication(list(args) if args is not None else sys.argv)
-    app.setOrganizationName("DiamondLightSource")
-    app.setApplicationName("spinharmony-studio")
     window = ScattyWindow()
     window.show()
     sys.exit(app.exec())

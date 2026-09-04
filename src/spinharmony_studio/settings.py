@@ -9,7 +9,18 @@ application-config directory (via ``QStandardPaths``).
 import json
 from pathlib import Path
 
-from PyQt6.QtCore import QStandardPaths
+from PyQt6.QtCore import QCoreApplication, QStandardPaths
+
+# QStandardPaths.AppConfigLocation is derived from
+# QCoreApplication.organizationName()/applicationName(). Those are static
+# properties settable without a QApplication instance - set them here, at
+# import time, so app_data_dir() resolves to the same directory regardless
+# of whether this is imported by the GUI (which used to set them itself,
+# after constructing its QApplication) or by a plain script/test. Leaving it
+# to the GUI meant any other entry point saw a different (or unnamed,
+# argv[0]-based) config directory and silently missed the real settings file.
+QCoreApplication.setOrganizationName("DiamondLightSource")
+QCoreApplication.setApplicationName("spinharmony-studio")
 
 _SPINVERT_KEY = "spinvert_executable"
 _SPINCORREL_KEY = "spincorrel_executable"
@@ -155,3 +166,5 @@ def example_data_dir() -> Path:
 
 if __name__ == "__main__":
     print(settings_file())
+
+    print(load_spinvert_path())
