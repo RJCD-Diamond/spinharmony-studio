@@ -32,16 +32,22 @@ def save_path(key: str, path: str) -> Path:
     return settings_file()
 
 
-def settings_file() -> Path:
-    """Absolute path of the settings JSON file (it may not exist yet)."""
+def app_data_dir() -> Path:
     location = QStandardPaths.writableLocation(
         QStandardPaths.StandardLocation.AppConfigLocation
     )
+
     if location:
         base = Path(location)
     else:
         base = Path.home() / ".config" / "spinharmony-studio"
-    return base / "settings.json"
+    return base
+
+
+def settings_file() -> Path:
+    """Absolute path of the settings JSON file (it may not exist yet)."""
+
+    return app_data_dir() / "settings.json"
 
 
 def _read() -> dict:

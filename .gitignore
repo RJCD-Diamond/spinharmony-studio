@@ -22,9 +22,11 @@ __pycache__/
 *_plot.png
 *_scatty_info.txt
 *scatty_config.txt
-*programs/
-/scatty/
-/spinvert/
+/programs/scatty/
+/programs/spinvert/
+
+#downloads
+*.zip
 
 # Distribution / packaging
 .Python
