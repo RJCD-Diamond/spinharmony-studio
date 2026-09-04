@@ -1,4 +1,4 @@
-"""Convert SPINVERT refinement output into CrystalMaker .cmtx files.
+"""Convert SPINVERT refinement output into CrystalMaker X .cmtx files.
 
 SPINVERT (https://spinvert.chem.ox.ac.uk/) writes fitted spin configurations
 as plain-text ``*_spins_NN.txt`` files. This module turns one of those files
@@ -13,7 +13,6 @@ labels distinct colours/styles in CrystalMaker for the clearest result.
 
 Run as a script (edit the ``SpinvertConfig`` in :func:`main`), or import the
 public functions/classes to build a custom pipeline.
-
 """
 
 from __future__ import annotations
@@ -33,6 +32,26 @@ from scipy.spatial import KDTree
 logger = logging.getLogger(__name__)
 
 _FALLBACK_BOND_LENGTH_ANGSTROM = 1.5
+
+# A symmetry operator maps fractional coordinate arrays (x, y, z) to an
+# equivalent-position fractional coordinate array (x', y', z').
+SymmetryOp = Callable[
+    [np.ndarray, np.ndarray, np.ndarray], tuple[np.ndarray, np.ndarray, np.ndarray]
+]
+
+
+def default_symmetry_operations() -> list[SymmetryOp]:
+    """Symmetry operators used by the original script (space group P2_1/n).
+
+    Supply a different list of operators via
+    :attr:`SpinvertConfig.symmetry_operations` for other space groups.
+    """
+    return [
+        lambda x, y, z: (x, y, z),
+        lambda x, y, z: (1.5 - x, 1.0 - y, z + 0.5),
+        lambda x, y, z: (1.0 - x, y + 0.5, 1.5 - z),
+        lambda x, y, z: (x + 0.5, 1.5 - y, 1.0 - z),
+    ]
 
 
 def bond_length_from_element(symbol: str) -> float:
@@ -60,27 +79,6 @@ def bond_length_from_element(symbol: str) -> float:
     return covalent_radius_pm / 100.0
 
 
-# A symmetry operator maps fractional coordinate arrays (x, y, z) to an
-# equivalent-position fractional coordinate array (x', y', z').
-SymmetryOp = Callable[
-    [np.ndarray, np.ndarray, np.ndarray], tuple[np.ndarray, np.ndarray, np.ndarray]
-]
-
-
-def default_symmetry_operations() -> list[SymmetryOp]:
-    """Symmetry operators used by the original script (space group P2_1/n).
-
-    Supply a different list of operators via
-    :attr:`SpinvertConfig.symmetry_operations` for other space groups.
-    """
-    return [
-        lambda x, y, z: (x, y, z),
-        lambda x, y, z: (1.5 - x, 1.0 - y, z + 0.5),
-        lambda x, y, z: (1.0 - x, y + 0.5, 1.5 - z),
-        lambda x, y, z: (x + 0.5, 1.5 - y, 1.0 - z),
-    ]
-
-
 # --------------------------------------------------------------------------- #
 # Configuration
 # --------------------------------------------------------------------------- #
@@ -92,12 +90,14 @@ class VectorStyle:
 
     Leave ``bond_length`` as ``None`` to derive it automatically from the
     magnetic atom's covalent radius via :func:`bond_length_from_element`;
-    set it explicitly to override that lookup.
+    set it explicitly to override that lookup. ``style`` follows
+    CrystalMaker's AVEC convention: 1 = arrow from atom, 2 = arrow through
+    atom, 3 = arrow to atom.
     """
 
     bond_length: float | None = None
-    colour_rgb: tuple[float, float, float] = (0.0, 0.0, 1.0)
-    style: int = 3
+    colour_rgb: tuple[float, float, float] = (1.0, 0.0, 0.0)
+    style: int = 2
 
     def resolved(self, magnetic_atom: str) -> VectorStyle:
         """Return a copy with ``bond_length`` filled in if not already set."""
@@ -117,7 +117,7 @@ class FerroHighlightSettings:
     """Settings controlling the ferro/antiferromagnetic highlighting pass."""
 
     enabled: bool = True
-    correlation_cutoff: float = 0.04  # inspect the scf.txt plot to choose this
+    correlation_cutoff: float = 0.05  # inspect the scf.txt plot to choose this
     atom_distance: float = 3.0  # Angstrom cutoff for including non-magnetic atoms
     highlight_center_atom: bool = False
     up_label: str = "Up"
@@ -133,12 +133,48 @@ class NonMagneticAtom:
 
 
 @dataclass(frozen=True)
+class BondMaxSpec:
+    """One ``BMAX`` line: the maximum distance CrystalMaker draws as a bond
+    between two atom labels."""
+
+    atom_a: str
+    atom_b: str
+    max_distance: float
+
+    def to_line(self) -> str:
+        return f"BMAX  {self.atom_a:<3} {self.atom_b:<3} {self.max_distance}"
+
+
+@dataclass(frozen=True)
+class AtomRenderStyle:
+    """One ``TYPE`` line: display radius and colour for an atom label."""
+
+    label: str
+    radius: float
+    colour_rgb: tuple[float, float, float]
+
+    def to_line(self) -> str:
+        red, green, blue = self.colour_rgb
+        return f"{self.label:<5} {self.radius:.2f}  {red:.5f} {green:.5f} {blue:.5f}"
+
+
+@dataclass(frozen=True)
+class CmtxRenderSettings:
+    """``BMAX``/``TYPE`` header block for one .cmtx file."""
+
+    bond_specs: Sequence[BondMaxSpec]
+    atom_styles: Sequence[AtomRenderStyle]
+
+
+@dataclass(frozen=True)
 class SpinvertConfig:
     """All user-configurable parameters for a spins -> .cmtx conversion."""
 
     data_dir: Path
     magnetic_atom: str
     non_magnetic_atoms: Sequence[NonMagneticAtom]
+    structure_render: CmtxRenderSettings
+    highlight_render: CmtxRenderSettings
     symmetry_operations: Sequence[SymmetryOp] = field(
         default_factory=default_symmetry_operations
     )
@@ -345,7 +381,7 @@ def classify_ferro_antiferro(
 # .cmtx writing
 # --------------------------------------------------------------------------- #
 
-_CMTX_HEADER_TEMPLATE = """\
+_CMTX_PREAMBLE_TEMPLATE = """\
 ! Lattice type
 LATC  P
 
@@ -381,18 +417,37 @@ SREN  0.500000 1.000000 0.000000 1
 SHCL  {show_cell}
 
 ! Orientation matrix: 11 12 13; 21 22 23; 31 32 33
-! OMAT  4.000 0.000 -0.000  -0.000 -5.000 0.000  -0.000 -0.000 -6.000
+OMAT  4.000 0.000 -0.000  -0.000 -5.000 0.000  -0.000 -0.000 -6.000
 
-! Asymmetric unit
-ATOM
 """
 
 
+def _build_header(show_cell: int, render: CmtxRenderSettings) -> str:
+    """Assemble the LATC..OMAT preamble plus the BMAX/TYPE block for a
+    .cmtx file, ending at the start of the ``ATOM`` section."""
+    bond_lines = "\n".join(spec.to_line() for spec in render.bond_specs)
+    type_lines = "\n".join(style.to_line() for style in render.atom_styles)
+    return (
+        _CMTX_PREAMBLE_TEMPLATE.format(show_cell=show_cell)
+        + "! Bond specifications\n"
+        + f"{bond_lines}\n"
+        + "\n"
+        + "! Atom types\n"
+        + "TYPE\n"
+        + f"{type_lines}\n"
+        + "\n"
+        + "! Asymmetric unit\n"
+        + "ATOM\n"
+    )
+
+
 def _atom_labels(n: int) -> list[str]:
-    """One-letter labels (A, B, C, ...) used to disambiguate atom names."""
-    if n > len(string.ascii_uppercase):
-        raise ValueError("More than 26 non-magnetic atoms is not supported")
-    return list(string.ascii_uppercase[:n])
+    """Two-letter atom-type labels: AA, AB, ..., AZ, BA, ..., ZZ (676 max)."""
+    letters = string.ascii_uppercase
+    combos = [f"{a}{b}" for a in letters for b in letters]
+    if n > len(combos):
+        raise ValueError("Too many non-magnetic atom types for two-letter labelling")
+    return combos[:n]
 
 
 def _write_non_magnetic_atoms(
@@ -405,7 +460,8 @@ def _write_non_magnetic_atoms(
     ):
         for i, (x, y, z) in enumerate(positions):
             handle.write(
-                f"{atom.element}    {atom.element}{label}{i}    {x}    {y}    {z}\n"
+                f"{atom.element}    {atom.element}{label}{i}    "
+                f"{x:.6f}    {y:.6f}    {z:.6f}\n"
             )
 
 
@@ -436,8 +492,13 @@ def _write_nearby_non_magnetic_atoms(
                 )
 
 
+def _cutoff_suffix(cutoff: float) -> str:
+    """Filesystem-safe representation of a cutoff value, e.g. 0.05 -> '0-05'."""
+    return str(cutoff).replace(".", "-")
+
+
 class CmtxWriter:
-    """Writes CrystalMaker .cmtx files for a SPINVERT magnetic structure."""
+    """Writes CrystalMaker X .cmtx files for a SPINVERT magnetic structure."""
 
     def __init__(self, data: SpinvertData, supercell_box: np.ndarray) -> None:
         self.data = data
@@ -445,8 +506,9 @@ class CmtxWriter:
 
     def _write_title_and_cell(self, handle: TextIO) -> None:
         handle.write(f"TITl\t{self.data.title}\n")
+        handle.write("! Unit cell parameters\n")
         cell_values = [*self.supercell_box, *self.data.cell_angles]
-        handle.write("CELL" + "".join(f"\t{v}" for v in cell_values) + "\n")
+        handle.write("CELL" + "".join(f"\t{v}" for v in cell_values) + "\n\n")
 
     def write_structure(
         self,
@@ -457,11 +519,12 @@ class CmtxWriter:
         non_magnetic_fractional: Sequence[np.ndarray],
         spin_vectors: np.ndarray,
         vector_style: VectorStyle,
+        render: CmtxRenderSettings,
     ) -> None:
         """Write the full nuclear + magnetic structure .cmtx file."""
         with path.open("w") as handle:
             self._write_title_and_cell(handle)
-            handle.write(_CMTX_HEADER_TEMPLATE.format(show_cell=1))
+            handle.write(_build_header(show_cell=1, render=render))
 
             for index, (x, y, z) in enumerate(magnetic_fractional):
                 handle.write(
@@ -483,8 +546,12 @@ class CmtxWriter:
                 zip(magnetic_fractional, spin_vectors, strict=True)
             ):
                 handle.write(
-                    f"{magnetic_atom}{index}     {x}    {y}    {z}    {u}    {v}    {w}  "  # noqa
-                    f"{vector_style.bond_length} {red} {green} {blue} {vector_style.style}\n"  # noqa
+                    f"{magnetic_atom}{index}     "
+                    f"{x:.5f}  {y:.5f}  {z:.5f}   "
+                    f"{u:.5f}   {v:.5f}     {w:.5f}   "
+                    f"{vector_style.bond_length:.4f}   "
+                    f"{red:.3f} {green:.3f} {blue:.3f}   "
+                    f"{vector_style.style}\n"
                 )
 
     def write_highlight(
@@ -497,11 +564,12 @@ class CmtxWriter:
         non_magnetic_fractional: Sequence[np.ndarray],
         highlight: FerroHighlightSettings,
         center_index: int,
+        render: CmtxRenderSettings,
     ) -> None:
         """Write a .cmtx file labelling each magnetic atom by correlation."""
         with path.open("w") as handle:
             self._write_title_and_cell(handle)
-            handle.write(_CMTX_HEADER_TEMPLATE.format(show_cell=0))
+            handle.write(_build_header(show_cell=0, render=render))
 
             highlighted_fractional: list[tuple[float, float, float]] = []
             for index, (label, (x, y, z)) in enumerate(
@@ -565,6 +633,7 @@ def convert_spinvert_to_cmtx(config: SpinvertConfig) -> None:
         non_magnetic_fractional,
         data.spin_vectors,
         vector_style,
+        config.structure_render,
     )
     logger.info("Wrote %s", structure_path)
 
@@ -572,7 +641,7 @@ def convert_spinvert_to_cmtx(config: SpinvertConfig) -> None:
         scf_path = find_scf_file(config.data_dir)
         if scf_path is None:
             logger.warning(
-                "No '*scf.txt' file found in %s; run spindist first. "
+                "No '*scf.txt' file found in %s; run spincorrel first. "
                 "Skipping ferro highlighting.",
                 config.data_dir,
             )
@@ -593,7 +662,8 @@ def convert_spinvert_to_cmtx(config: SpinvertConfig) -> None:
             )
 
             highlight_path = (
-                config.data_dir / f"{data.title}_spinvert_AFM_highlight.cmtx"
+                config.data_dir / f"{data.title}_spinvert_AFM_highlight_"
+                f"{_cutoff_suffix(config.ferro_highlight.correlation_cutoff)}.cmtx"
             )
             writer.write_highlight(
                 highlight_path,
@@ -604,6 +674,7 @@ def convert_spinvert_to_cmtx(config: SpinvertConfig) -> None:
                 non_magnetic_fractional,
                 config.ferro_highlight,
                 center_index,
+                config.highlight_render,
             )
             logger.info("Wrote %s", highlight_path)
 
@@ -628,12 +699,50 @@ def main() -> None:
             NonMagneticAtom("C", (0.502, 0.4500, 0.1734)),
             NonMagneticAtom("D", (-0.10, -0.28, 0.04)),
         ],
+        structure_render=CmtxRenderSettings(
+            bond_specs=[
+                BondMaxSpec("C", "O", 2.501),
+                BondMaxSpec("D", "O", 1.248),
+                BondMaxSpec("O", "Tb", 2.7),
+            ],
+            atom_styles=[
+                AtomRenderStyle(
+                    "C", radius=0.29, colour_rgb=(0.06577, 0.02538, 0.00287)
+                ),
+                AtomRenderStyle(
+                    "D", radius=0.04, colour_rgb=(0.89999, 0.89999, 1.00000)
+                ),
+                AtomRenderStyle(
+                    "O", radius=1.21, colour_rgb=(1.00000, 0.00000, 0.00000)
+                ),
+                AtomRenderStyle(
+                    "Tb", radius=1.18, colour_rgb=(0.44314, 0.01662, 0.99782)
+                ),
+            ],
+        ),
+        highlight_render=CmtxRenderSettings(
+            bond_specs=[
+                BondMaxSpec("Dw", "O", 2.503),
+                BondMaxSpec("O", "Up", 2.503),
+            ],
+            atom_styles=[
+                AtomRenderStyle(
+                    "Dw", radius=2.60, colour_rgb=(1.00000, 0.00000, 0.00000)
+                ),
+                AtomRenderStyle(
+                    "O", radius=1.21, colour_rgb=(1.00000, 0.00000, 0.00000)
+                ),
+                AtomRenderStyle(
+                    "Up", radius=2.60, colour_rgb=(0.00000, 0.20000, 1.00000)
+                ),
+            ],
+        ),
         # bond_length left as None: derived from the magnetic atom's covalent
         # radius via mendeleev. Pass an explicit float here to override it.
-        vector_style=VectorStyle(colour_rgb=(0.0, 0.0, 1.0), style=3),
+        vector_style=VectorStyle(colour_rgb=(1.0, 0.0, 0.0), style=2),
         ferro_highlight=FerroHighlightSettings(
             enabled=True,
-            correlation_cutoff=0.04,
+            correlation_cutoff=0.05,
             atom_distance=3.0,
             highlight_center_atom=False,
         ),

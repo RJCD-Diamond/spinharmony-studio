@@ -24,14 +24,14 @@ from PyQt6.QtWidgets import (
 )
 
 from spinharmony_studio.settings import (
-    load_executable_path,
     load_last_session,
     load_scatty_path,
     load_spincorrel_path,
-    save_executable_path,
+    load_spinvert_path,
     save_last_session,
     save_scatty_path,
     save_spincorrel_path,
+    save_spinvert_path,
     settings_file,
 )
 from spinharmony_studio.spinvert.config import SpinvertConfig
@@ -157,7 +157,7 @@ class MainWindow(QMainWindow):
         status_bar.addPermanentWidget(self.scatty_status_label)
 
         # Restore the external-program paths chosen in a previous session.
-        self._set_executable_path(load_executable_path() or "", persist=False)
+        self._set_spinvert_path(load_spinvert_path() or "", persist=False)
         self._set_spincorrel_path(load_spincorrel_path() or "", persist=False)
         self._set_scatty_path(load_scatty_path() or "", persist=False)
 
@@ -370,18 +370,18 @@ class MainWindow(QMainWindow):
             self, "Select spinvert executable", start_dir
         )
         if path:
-            self._set_executable_path(path, persist=True)
+            self._set_spinvert_path(path, persist=True)
 
-    def _set_executable_path(self, path: str, persist: bool) -> None:
-        self._executable_path = path.strip()
+    def _set_spinvert_path(self, path: str, persist: bool) -> None:
+        self._spinvert_path = path.strip()
         self.exe_status_label.setText(
-            f"spinvert: {self._executable_path}"
-            if self._executable_path
+            f"spinvert: {self._spinvert_path}"
+            if self._spinvert_path
             else "spinvert: not set"
         )
-        if persist and self._executable_path:
+        if persist and self._spinvert_path:
             try:
-                where = save_executable_path(self._executable_path)
+                where = save_spinvert_path(self._spinvert_path)
             except OSError as exc:
                 QMessageBox.warning(
                     self,
@@ -394,7 +394,7 @@ class MainWindow(QMainWindow):
     def _verify_executable_configured(self) -> None:
         """On startup, make sure a usable spinvert executable is configured;
         otherwise tell the user to pick one before running anything."""
-        if not self._executable_path:
+        if not self._spinvert_path:
             QMessageBox.warning(
                 self,
                 "spinvert executable not set",
@@ -404,12 +404,12 @@ class MainWindow(QMainWindow):
                 "before running spinvert.",
             )
             return
-        if resolve_executable(self._executable_path) is None:
+        if resolve_executable(self._spinvert_path) is None:
             QMessageBox.warning(
                 self,
                 "spinvert executable not found",
                 "The saved spinvert executable no longer exists:\n\n"
-                f"{self._executable_path}\n\n"
+                f"{self._spinvert_path}\n\n"
                 "Choose it again via  File → "
                 "“Set spinvert executable…”  before running spinvert.",
             )
@@ -418,7 +418,7 @@ class MainWindow(QMainWindow):
         start_dir = ""
         for candidate in (
             self._scatty_path,
-            self._executable_path,
+            self._spinvert_path,
             self._spincorrel_path,
         ):
             if candidate:
@@ -465,7 +465,7 @@ class MainWindow(QMainWindow):
 
     def _browse_spincorrel(self) -> None:
         start_dir = ""
-        for candidate in (self._spincorrel_path, self._executable_path):
+        for candidate in (self._spincorrel_path, self._spinvert_path):
             if candidate:
                 start_dir = str(Path(candidate).expanduser().parent)
                 break

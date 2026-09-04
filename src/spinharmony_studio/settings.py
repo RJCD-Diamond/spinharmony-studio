@@ -11,9 +11,13 @@ from pathlib import Path
 
 from PyQt6.QtCore import QStandardPaths
 
-_EXECUTABLE_KEY = "spinvert_executable"
+_SPINVERT_KEY = "spinvert_executable"
 _SPINCORREL_KEY = "spincorrel_executable"
+_SPINTERACT_KEY = "spinteract_executable"
 _SCATTY_KEY = "scatty_executable"
+_SPINPLOT_KEY = "spinplot_executable"
+_SPINDIST_KEY = "spindist_executable"
+
 _WORKDIR_KEY = "working_directory"
 _TITLE_KEY = "title"
 
@@ -64,14 +68,14 @@ def _write(data: dict) -> None:
     path.write_text(json.dumps(data, indent=2) + "\n")
 
 
-def load_executable_path() -> str | None:
+def load_spinvert_path() -> str | None:
     """The saved spinvert executable path, or None if unset / file missing."""
-    return load_path(_EXECUTABLE_KEY)
+    return load_path(_SPINVERT_KEY)
 
 
-def save_executable_path(path: str) -> Path:
+def save_spinvert_path(path: str) -> Path:
     """Persist the spinvert executable path. Returns the settings file path."""
-    return save_path(_EXECUTABLE_KEY, path)
+    return save_path(_SPINVERT_KEY, path)
 
 
 def load_spincorrel_path() -> str | None:
@@ -94,6 +98,36 @@ def save_scatty_path(path: str) -> Path:
     return save_path(_SCATTY_KEY, path)
 
 
+def load_spinteract_path() -> str | None:
+    """The saved spinteract executable path, or None if unset / file missing."""
+    return load_path(_SPINTERACT_KEY)
+
+
+def save_spinteract_path(path: str) -> Path:
+    """Persist the spinteract executable path. Returns the settings file path."""
+    return save_path(_SPINTERACT_KEY, path)
+
+
+def load_spinplot_path() -> str | None:
+    """The saved spinplot executable path, or None if unset / file missing."""
+    return load_path(_SPINPLOT_KEY)
+
+
+def save_spinplot_path(path: str) -> Path:
+    """Persist the spinplot executable path. Returns the settings file path."""
+    return save_path(_SPINPLOT_KEY, path)
+
+
+def load_spindist_path() -> str | None:
+    """The saved spindist executable path, or None if unset / file missing."""
+    return load_path(_SPINDIST_KEY)
+
+
+def save_spindist_path(path: str) -> Path:
+    """Persist the spindist executable path. Returns the settings file path."""
+    return save_path(_SPINDIST_KEY, path)
+
+
 def load_last_session() -> tuple[str | None, str | None]:
     """The last (working directory, title), so the previous config reloads."""
     data = _read()
@@ -112,6 +146,11 @@ def save_last_session(workdir: str, title: str) -> Path:
     data[_TITLE_KEY] = title
     _write(data)
     return settings_file()
+
+
+def example_path() -> Path:
+    """Return the path to the example config file shipped with the package."""
+    return Path(__file__).parent / "examples" / "TbODCO3"
 
 
 if __name__ == "__main__":

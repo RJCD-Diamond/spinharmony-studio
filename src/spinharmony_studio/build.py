@@ -9,7 +9,16 @@ from pathlib import Path
 
 import requests
 
-from spinharmony_studio.settings import app_data_dir
+from spinharmony_studio import BASE_PATH
+from spinharmony_studio.settings import (
+    app_data_dir,
+    save_scatty_path,
+    save_spincorrel_path,
+    save_spindist_path,
+    save_spinplot_path,
+    save_spinteract_path,
+    save_spinvert_path,
+)
 from spinharmony_studio.source_urls import (
     SCATTY_DOWNLOAD_URL,
     SPINTERACT_DOWNLOAD_URL,
@@ -327,6 +336,56 @@ def _require(path: Path) -> Path:
     return path
 
 
+def build_spinplot_and_spindist(app_location: str | Path) -> dict[str, Path]:
+    """
+    Copy spindist and spinplot's Fortran source into ``app_location`` and
+    compile them there.
+
+    Unlike spinvert/scatty/spinteract, these two ship as source inside this
+    package rather than as an iCloud download, so there's no zip to unpack.
+
+    Returns:
+        {"spindist": ..., "spinplot": ...}
+    """
+    app_location = Path(app_location)
+    app_location.mkdir(parents=True, exist_ok=True)
+
+    spindist_source = Path(BASE_PATH) / "spinplot" / "spindist.f90"
+    spinplot_source = Path(BASE_PATH) / "spinplot" / "spinplot.f"
+
+    spindist_copy = shutil.copy2(spindist_source, app_location)
+    spinplot_copy = shutil.copy2(spinplot_source, app_location)
+
+    print(f"Compiling spindist in {app_location}...")
+    compile_fortran(spindist_copy)
+    print(f"Compiling spinplot in {app_location}...")
+    compile_fortran(spinplot_copy)
+
+    return {
+        "spindist": _require(app_location / "spindist"),
+        "spinplot": _require(app_location / "spinplot"),
+    }
+
+
+# Maps an executable's name (as returned by build_spinvert/build_scatty/
+# build_spinteract/build_spinplot) to the settings.py function that persists
+# its path.
+_SAVE_EXECUTABLE_PATH = {
+    "spinvert": save_spinvert_path,
+    "spincorrel": save_spincorrel_path,
+    "scatty": save_scatty_path,
+    "spinteract": save_spinteract_path,
+    "spindist": save_spindist_path,
+    "spinplot": save_spinplot_path,
+}
+
+
+def save_executable_paths(executables: dict[str, Path]) -> None:
+    """Persist each built executable's path via its settings.save_*_path."""
+    for name, path in executables.items():
+        _SAVE_EXECUTABLE_PATH[name](str(path))
+
+
 def unzip_and_build_spinharmony(
     spinvert_zip_path: str | Path,
     scatty_zip_path: str | Path,
@@ -348,17 +407,23 @@ def unzip_and_build_spinharmony(
 
 def setup_spinharmony(app_location: str | Path | None = None) -> dict[str, Path]:
     """
-    Download, unzip and build all three SpinHarmony components.
+    Download, unzip and build all three SpinHarmony components, then compile
+    the bundled spindist/spinplot tools alongside them.å
 
     Returns:
-        Mapping of executable name (spinvert, spincorrel, scatty, spinteract)
-        to the built binary's path.
+        Mapping of executable name (spinvert, spincorrel, scatty, spinteract,
+        spindist, spinplot) to the built binary's path.
     """
     if not gfortran_available():
         raise FileNotFoundError("gfortran must be installed to build SpinHarmony")
 
+    if app_location is None:
+        app_location = app_data_dir()
+
     spinvert_zip, scatty_zip, spinteract_zip = download_spinharmony(app_location)
     executables = unzip_and_build_spinharmony(spinvert_zip, scatty_zip, spinteract_zip)
+    executables.update(build_spinplot_and_spindist(app_location))
+    save_executable_paths(executables)
 
     print("\nAll components built:")
     for name, path in executables.items():
@@ -368,3 +433,5 @@ def setup_spinharmony(app_location: str | Path | None = None) -> dict[str, Path]
 
 if __name__ == "__main__":
     executables = setup_spinharmony()
+
+    print(executables)
