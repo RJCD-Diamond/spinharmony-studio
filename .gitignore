@@ -10,6 +10,8 @@ __pycache__/
 
 #Spinvert outputs
 *_chi_*.txt
+*.gif
+*_spinplot*.txt
 *_fit_*.txt
 *_spins_*.txt
 *_form_fac_sq*.txt

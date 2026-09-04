@@ -61,7 +61,7 @@ from spinharmony_studio.spinvert.gui.output_log import OutputLog
 from spinharmony_studio.spinvert.gui.plot_panel import PlotPanel
 from spinharmony_studio.spinvert.gui.spinvert_runner import SpinvertRunner
 
-__all__ = ["main"]
+# __all__ = ["main"]
 
 POLL_INTERVAL_MS = 1000
 
@@ -83,7 +83,7 @@ class MainWindow(QMainWindow):
         # Paths to the external programs. Chosen from the File menu and
         # remembered between sessions (see settings.py). Never shown in the
         # main layout.
-        self._executable_path: str = ""
+        self._spinvert_path: str = ""
         self._spincorrel_path: str = ""
         self._scatty_path: str = ""
         self._checked_executable = False
@@ -364,8 +364,8 @@ class MainWindow(QMainWindow):
 
     def _browse_executable(self) -> None:
         start_dir = ""
-        if self._executable_path:
-            start_dir = str(Path(self._executable_path).expanduser().parent)
+        if self._spinvert_path:
+            start_dir = str(Path(self._spinvert_path).expanduser().parent)
         path, _ = QFileDialog.getOpenFileName(
             self, "Select spinvert executable", start_dir
         )
@@ -728,7 +728,7 @@ class MainWindow(QMainWindow):
     def _run_spinvert(self) -> None:
         if self.runner.is_running() or self.correl_runner.is_running():
             return
-        resolved = self._prepare_executable(self._executable_path, "spinvert")
+        resolved = self._prepare_executable(self._spinvert_path, "spinvert")
         if resolved is None:
             return
         workdir = self._current_workdir()
@@ -932,7 +932,7 @@ class MainWindow(QMainWindow):
         self.plot_panel.update_data_and_fit(self._data, self._fit, self._fit_label)
 
 
-def main(args: Sequence[str] | None = None) -> None:
+def run_spinharmony(args: Sequence[str] | None = None) -> None:
     app = QApplication(list(args) if args is not None else sys.argv)
     # Give QStandardPaths a stable per-user config directory for settings.py.
     app.setOrganizationName("DiamondLightSource")
@@ -943,4 +943,4 @@ def main(args: Sequence[str] | None = None) -> None:
 
 
 if __name__ == "__main__":
-    main()
+    run_spinharmony()
