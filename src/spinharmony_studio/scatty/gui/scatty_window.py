@@ -31,6 +31,11 @@ from PyQt6.QtWidgets import (
 from spinharmony_studio.scatty.config import ScattyConfig
 from spinharmony_studio.scatty.gui.scatty_form import ScattyConfigForm
 from spinharmony_studio.scatty.gui.scatty_plot_panel import ScattyPlotPanel
+from spinharmony_studio.settings import (
+    load_scatty_path,
+    save_scatty_path,
+    settings_file,
+)
 from spinharmony_studio.spinvert.gui.blade_splitter import BladeSplitter
 from spinharmony_studio.spinvert.gui.config_prompt import confirm_save_before_run
 from spinharmony_studio.spinvert.gui.executables import (
@@ -38,11 +43,6 @@ from spinharmony_studio.spinvert.gui.executables import (
     resolve_executable,
 )
 from spinharmony_studio.spinvert.gui.output_log import OutputLog
-from spinharmony_studio.spinvert.gui.settings import (
-    load_scatty_path,
-    save_scatty_path,
-    settings_file,
-)
 from spinharmony_studio.spinvert.gui.spinvert_runner import SpinvertRunner
 
 __all__ = ["ScattyWindow", "main"]

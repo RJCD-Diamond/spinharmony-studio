@@ -23,6 +23,17 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from spinharmony_studio.settings import (
+    load_executable_path,
+    load_last_session,
+    load_scatty_path,
+    load_spincorrel_path,
+    save_executable_path,
+    save_last_session,
+    save_scatty_path,
+    save_spincorrel_path,
+    settings_file,
+)
 from spinharmony_studio.spinvert.config import SpinvertConfig
 from spinharmony_studio.spinvert.gui.blade_splitter import BladeSplitter
 from spinharmony_studio.spinvert.gui.config_form import ConfigFormWidget
@@ -48,17 +59,6 @@ from spinharmony_studio.spinvert.gui.executables import (
 )
 from spinharmony_studio.spinvert.gui.output_log import OutputLog
 from spinharmony_studio.spinvert.gui.plot_panel import PlotPanel
-from spinharmony_studio.spinvert.gui.settings import (
-    load_executable_path,
-    load_last_session,
-    load_scatty_path,
-    load_spincorrel_path,
-    save_executable_path,
-    save_last_session,
-    save_scatty_path,
-    save_spincorrel_path,
-    settings_file,
-)
 from spinharmony_studio.spinvert.gui.spinvert_runner import SpinvertRunner
 
 __all__ = ["main"]
