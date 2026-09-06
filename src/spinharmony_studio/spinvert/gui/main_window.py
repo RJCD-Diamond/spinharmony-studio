@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QTimer, QUrl
-from PyQt6.QtGui import QAction, QDesktopServices
+from PyQt6.QtGui import QAction, QDesktopServices, QIcon
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from spinharmony_studio import BASE_PATH
 from spinharmony_studio.build import find_program_instructions_pdf, gfortran_available
 from spinharmony_studio.settings import (
     load_last_session,
@@ -1061,6 +1062,8 @@ def run_spinharmony(args: Sequence[str] | None = None) -> None:
     # Importing spinharmony_studio.settings sets the org/app name that
     # QStandardPaths uses for settings.py's config directory.
     app = QApplication(list(args) if args is not None else sys.argv)
+    app.setWindowIcon(QIcon(str(Path(BASE_PATH) / "icon.png")))
+    app.setApplicationDisplayName("Spinharmony Studio")
     window = MainWindow()
     window.show()
     sys.exit(app.exec())
