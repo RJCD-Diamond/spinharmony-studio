@@ -11,7 +11,7 @@ from spinharmony_studio.config_base import (
 )
 
 
-class _Dummy(FortranConfig):
+class Dummy(FortranConfig):
     CONFIG_FILENAME = "dummy_config.txt"
     value: float = 1.0
 
@@ -45,13 +45,13 @@ def test_default_config_lines_raises():
 
 
 def test_joins_lines_with_trailing_newline():
-    text = _Dummy(value=2.5).to_text()
+    text = Dummy(value=2.5).to_text()
     assert text == "VALUE 2.5\nFLAG\n"
 
 
 def test_writes_file_and_returns_path(tmp_path):
     target = tmp_path / "dummy_config.txt"
-    result = _Dummy(value=3).to_file(target)
+    result = Dummy(value=3).to_file(target)
     assert result == target
     assert target.read_text() == "VALUE 3\nFLAG\n"
 
@@ -59,7 +59,7 @@ def test_writes_file_and_returns_path(tmp_path):
 def test_wrong_filename_rejected_when_fixed(tmp_path):
     target = tmp_path / "wrong_name.txt"
     with pytest.raises(ValueError, match="dummy_config.txt"):
-        _Dummy().to_file(target)
+        Dummy().to_file(target)
 
 
 def test_any_filename_accepted_when_unset(tmp_path):
