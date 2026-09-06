@@ -388,8 +388,8 @@ class MainWindow(QMainWindow):
         layout.addLayout(title_row)
 
         button_row = QHBoxLayout()
-        self.save_button = QPushButton("Save config")
         self.load_button = QPushButton("Load config")
+        self.save_button = QPushButton("Save config")
         self.view_config_button = QPushButton("View config file")
         self.clear_files_button = QPushButton("Clear generated files")
         self.run_button = QPushButton("Run spinvert")
@@ -400,16 +400,16 @@ class MainWindow(QMainWindow):
         self.scatty_button.setToolTip(
             "Open the Scatty configuration window (uses this working directory)"
         )
-        self.save_button.clicked.connect(self._save_config)
         self.load_button.clicked.connect(self._load_config)
+        self.save_button.clicked.connect(self._save_config)
         self.view_config_button.clicked.connect(self._view_config)
         self.clear_files_button.clicked.connect(self._clear_generated_files)
         self.run_button.clicked.connect(self._run_spinvert)
         self.run_correl_button.clicked.connect(self._run_spincorrel)
         self.stop_button.clicked.connect(self._stop_running)
         self.scatty_button.clicked.connect(self._open_scatty_window)
-        button_row.addWidget(self.save_button)
         button_row.addWidget(self.load_button)
+        button_row.addWidget(self.save_button)
         button_row.addWidget(self.view_config_button)
         button_row.addWidget(self.clear_files_button)
         button_row.addWidget(self.run_button)

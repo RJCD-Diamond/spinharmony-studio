@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from spinharmony_studio.build import find_program_instructions_pdf
 from spinharmony_studio.scatty.config import ScattyConfig
 from spinharmony_studio.scatty.gui.scatty_form import ScattyConfigForm
 from spinharmony_studio.scatty.gui.scatty_plot_panel import ScattyPlotPanel
@@ -163,20 +164,20 @@ class ScattyWindow(QMainWindow):
         layout.addLayout(stem_row)
 
         buttons = QHBoxLayout()
-        self.save_button = QPushButton("Save config")
         self.load_button = QPushButton("Load config")
+        self.save_button = QPushButton("Save config")
         self.view_button = QPushButton("View config file")
         self.run_button = QPushButton("Run scatty")
         self.stop_button = QPushButton("Stop")
         self.stop_button.setEnabled(False)
-        self.save_button.clicked.connect(self._save_config)
         self.load_button.clicked.connect(self._load_config)
+        self.save_button.clicked.connect(self._save_config)
         self.view_button.clicked.connect(self._view_config)
         self.run_button.clicked.connect(self._run_scatty)
         self.stop_button.clicked.connect(self._stop)
         for b in (
-            self.save_button,
             self.load_button,
+            self.save_button,
             self.view_button,
             self.run_button,
             self.stop_button,
@@ -192,8 +193,8 @@ class ScattyWindow(QMainWindow):
 
         file_menu = menu_bar.addMenu("&File")
         assert file_menu is not None
-        self._add_action(file_menu, "&Save config", self._save_config, "Ctrl+S")
         self._add_action(file_menu, "&Load config", self._load_config, "Ctrl+O")
+        self._add_action(file_menu, "&Save config", self._save_config, "Ctrl+S")
         self._add_action(file_menu, "&View config file", self._view_config)
         file_menu.addSeparator()
         self.run_action = self._add_action(
@@ -239,6 +240,16 @@ class ScattyWindow(QMainWindow):
         self.toggle_plot_action.toggled.connect(self.blades.set_right_visible)
         view_menu.addAction(self.toggle_plot_action)
 
+        help_menu = menu_bar.addMenu("&Help")
+        assert help_menu is not None
+        self._add_action(
+            help_menu,
+            "scatty instructions (PDF)",
+            lambda: self._open_program_pdf("scatty", "scatty instructions"),
+        )
+        help_menu.addSeparator()
+        self._add_action(help_menu, "&About Scatty", self._show_about)
+
     def _add_action(self, menu, text, slot, shortcut: str | None = None) -> QAction:
         action = QAction(text, self)
         if shortcut:
@@ -253,6 +264,36 @@ class ScattyWindow(QMainWindow):
             action.blockSignals(True)
             action.setChecked(checked)
             action.blockSignals(False)
+
+    def _open_program_pdf(self, program_name: str, label: str) -> None:
+        pdf = find_program_instructions_pdf(program_name)
+        if pdf is None:
+            QMessageBox.warning(
+                self,
+                f"No {label} PDF",
+                f"No {label} PDF was found. It's located automatically "
+                "alongside the downloaded program, so run the automatic "
+                "SpinHarmony setup first.",
+            )
+            return
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(pdf))):
+            QMessageBox.warning(
+                self,
+                "Could not open",
+                f"The operating system could not open {pdf} in a PDF viewer.",
+            )
+
+    def _show_about(self) -> None:
+        QMessageBox.about(
+            self,
+            "About Scatty",
+            "Scatty\n\n"
+            "Scatty calculates single-crystal magnetic diffuse scattering "
+            "patterns from atomistic spin configurations (e.g. spinvert output). "
+            "For issues/feature requests with the user interface contact: "
+            "Richard Dixey at richard.dixey@diamond.ac.uk "
+            "Or submit a request on github",
+        )
 
     def showEvent(self, a0) -> None:  # noqa: N802 (Qt override)
         super().showEvent(a0)
