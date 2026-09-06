@@ -17,7 +17,7 @@ class _WritableConfig(Protocol):
 
 
 def confirm_save_before_run(
-    parent: QWidget,
+    parent: QWidget | None,
     config: _WritableConfig,
     path: Path,
     loader: Callable[[Path], _WritableConfig],

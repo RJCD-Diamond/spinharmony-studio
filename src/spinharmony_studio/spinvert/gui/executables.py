@@ -137,7 +137,7 @@ def diagnose_executable(path: str) -> str | None:
 
 
 def prepare_executable(
-    parent: QWidget,
+    parent: QWidget | None,
     path: str,
     label: str,
     log: Callable[[str], None],

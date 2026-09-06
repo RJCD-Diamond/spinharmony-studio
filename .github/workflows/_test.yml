@@ -14,6 +14,8 @@ env:
   # https://github.com/pytest-dev/pytest/issues/2042
   PY_IGNORE_IMPORTMISMATCH: "1"
   UV_PYTHON: ${{ inputs.python-version }}
+  # PyQt6 has no display to attach to on CI runners
+  QT_QPA_PLATFORM: offscreen
 
 jobs:
   run:
@@ -25,6 +27,26 @@ jobs:
         with:
           # Need this to get version number from last tag
           fetch-depth: 0
+
+      - name: Install Qt runtime dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1 \
+            libegl1 \
+            libxkbcommon-x11-0 \
+            libxcb-cursor0 \
+            libxcb-icccm4 \
+            libxcb-keysyms1 \
+            libxcb-render-util0 \
+            libxcb-xinerama0 \
+            libxcb-xkb1 \
+            libxcb-shape0 \
+            libxcb-randr0 \
+            libxcb-image0 \
+            libdbus-1-3 \
+            libfontconfig1
 
       - name: Install uv
         uses: astral-sh/setup-uv@v10.0.0

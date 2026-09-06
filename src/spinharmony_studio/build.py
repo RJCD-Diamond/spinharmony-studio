@@ -47,7 +47,7 @@ def compile_fortran(
     source_filepath: str | Path,
     output_filepath: str | Path | None = None,
     optimization: str = "O3",
-    extra_flags: str | None = None,
+    extra_flags: list[str] | None = None,
 ):
 
     if not gfortran_available():
