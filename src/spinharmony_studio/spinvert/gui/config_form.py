@@ -2,6 +2,7 @@
 
 from typing import Literal
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -31,6 +32,33 @@ _BACKGROUND_TYPES = ["None", "Flat background", "Linear background"]
 _REFINE_OR_FIXED = ["REFINE", "Fixed value"]
 
 
+# Fixed width for the little per-value labels ("a", "alpha", ...) inside a
+# _labelled_row, so every such row in a group reserves the same space for its
+# labels and their boxes line up in a column, instead of each row's boxes
+# starting wherever its own (differently-sized) labels happen to end.
+_MINI_LABEL_WIDTH = 40
+# Fixed width for the numeric boxes themselves, for the same reason: without
+# it, QFormLayout's field-growth policy can size each row's boxes to fill
+# whatever space is left over, which varies row to row.
+_SPINBOX_WIDTH = 70
+
+
+def _form_layout(parent: QWidget | None = None) -> QFormLayout:
+    """A QFormLayout that's aligned to a left-aligned grid on every platform.
+
+    macOS's native style centers QFormLayout and grows fields to fill
+    whatever space is left over by default (its SH_FormLayoutFormAlignment
+    style hint), unlike Linux/Windows - so left unset, this panel would end
+    up centred, with each row's field a different width, instead of a
+    consistent left-aligned label/field grid.
+    """
+    form = QFormLayout(parent)
+    form.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+    form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+    form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.FieldsStayAtSizeHint)
+    return form
+
+
 class ConfigFormWidget(QWidget):
     """Edits every SpinvertConfig field except TITLE (owned by MainWindow,
     since it also drives which data/output files are read)."""
@@ -52,7 +80,7 @@ class ConfigFormWidget(QWidget):
 
     def _build_cell_group(self) -> QGroupBox:
         group = QGroupBox("Cell")
-        form = QFormLayout(group)
+        form = _form_layout(group)
 
         self.cell_a = QDoubleSpinBox()
         self.cell_b = QDoubleSpinBox()
@@ -61,6 +89,7 @@ class ConfigFormWidget(QWidget):
             box.setRange(0.001, 1000)
             box.setDecimals(6)
             box.setValue(1.0)
+            box.setFixedWidth(_SPINBOX_WIDTH)
 
         self.cell_alpha = QDoubleSpinBox()
         self.cell_beta = QDoubleSpinBox()
@@ -69,6 +98,7 @@ class ConfigFormWidget(QWidget):
             box.setRange(0.001, 179.999)
             box.setDecimals(4)
             box.setValue(90.0)
+            box.setFixedWidth(_SPINBOX_WIDTH)
 
         form.addRow(
             "Lengths (a, b, c)",
@@ -91,7 +121,9 @@ class ConfigFormWidget(QWidget):
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         for label, box in labelled_boxes:
-            row.addWidget(QLabel(label))
+            label_widget = QLabel(label)
+            label_widget.setFixedWidth(_MINI_LABEL_WIDTH)
+            row.addWidget(label_widget)
             row.addWidget(box)
         row.addStretch()
         widget = QWidget()
@@ -146,16 +178,18 @@ class ConfigFormWidget(QWidget):
 
     def _build_refinement_group(self) -> QGroupBox:
         group = QGroupBox("Refinement")
-        form = QFormLayout(group)
+        form = _form_layout(group)
 
         self.weight_box = QDoubleSpinBox()
         self.weight_box.setRange(1e-9, 1e6)
         self.weight_box.setDecimals(6)
         self.weight_box.setValue(1.0)
+        self.weight_box.setFixedWidth(_SPINBOX_WIDTH)
 
         self.moves_box = QSpinBox()
         self.moves_box.setRange(1, 1_000_000_000)
         self.moves_box.setValue(300)
+        self.moves_box.setFixedWidth(_SPINBOX_WIDTH)
 
         self.box_x = QSpinBox()
         self.box_y = QSpinBox()
@@ -163,7 +197,9 @@ class ConfigFormWidget(QWidget):
         for box in (self.box_x, self.box_y, self.box_z):
             box.setRange(1, 1000)
             box.setValue(5)
+            box.setFixedWidth(_SPINBOX_WIDTH)
         box_row = QHBoxLayout()
+        box_row.setContentsMargins(0, 0, 0, 0)
         box_row.addWidget(self.box_x)
         box_row.addWidget(self.box_y)
         box_row.addWidget(self.box_z)
@@ -173,6 +209,7 @@ class ConfigFormWidget(QWidget):
         self.runs_box = QSpinBox()
         self.runs_box.setRange(1, 1_000_000)
         self.runs_box.setValue(1)
+        self.runs_box.setFixedWidth(_SPINBOX_WIDTH)
 
         form.addRow("WEIGHT", self.weight_box)
         form.addRow("MOVES", self.moves_box)
@@ -182,7 +219,7 @@ class ConfigFormWidget(QWidget):
 
     def _build_scale_and_background_group(self) -> QGroupBox:
         group = QGroupBox("Scale / background / data")
-        form = QFormLayout(group)
+        form = _form_layout(group)
 
         self.scale_mode_combo = QComboBox()
         self.scale_mode_combo.addItems(_REFINE_OR_FIXED)

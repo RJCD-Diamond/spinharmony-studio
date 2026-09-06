@@ -3,7 +3,7 @@
 import warnings
 from typing import get_args
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -54,12 +54,16 @@ _SLICE_PRESETS: list[tuple[str, _Dir, _Dir]] = [
 ]
 
 
+_SPINBOX_WIDTH = 70
+
+
 def _vector_boxes() -> list[QDoubleSpinBox]:
     boxes = []
     for _ in range(3):
         box = QDoubleSpinBox()
         box.setRange(-1e4, 1e4)
         box.setDecimals(4)
+        box.setFixedWidth(_SPINBOX_WIDTH)
         boxes.append(box)
     return boxes
 
@@ -71,6 +75,22 @@ def _row(*widgets: QWidget) -> QWidget:
     for w in widgets:
         layout.addWidget(w)
     return holder
+
+
+def _form_layout(parent: QWidget | None = None) -> QFormLayout:
+    """A QFormLayout that's aligned to a left-aligned grid on every platform.
+
+    macOS's native style centers QFormLayout and grows fields to fill
+    whatever space is left over by default (its SH_FormLayoutFormAlignment
+    style hint), unlike Linux/Windows - so left unset, this panel would end
+    up centred, with each row's field a different width, instead of a
+    consistent left-aligned label/field grid.
+    """
+    form = QFormLayout(parent)
+    form.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+    form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+    form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.FieldsStayAtSizeHint)
+    return form
 
 
 class ScattyConfigForm(QWidget):
@@ -99,7 +119,7 @@ class ScattyConfigForm(QWidget):
 
     def _build_pattern_group(self) -> QGroupBox:
         group = QGroupBox("Scattering pattern")
-        form = QFormLayout(group)
+        form = _form_layout(group)
 
         self.name_edit = QLineEdit(_DEFAULT_NAME)
         self.name_edit.setPlaceholderText("NAME - goes in the output filenames")
@@ -148,7 +168,7 @@ class ScattyConfigForm(QWidget):
 
     def _build_expansion_group(self) -> QGroupBox:
         group = QGroupBox("Displacement expansion (needed for displacive disorder)")
-        form = QFormLayout(group)
+        form = _form_layout(group)
 
         self.expmax_cb = QCheckBox("EXPANSION_MAX_ERROR")
         self.expmax_cb.toggled.connect(self._on_expmax_toggled)
@@ -168,7 +188,7 @@ class ScattyConfigForm(QWidget):
 
     def _build_interpolation_group(self) -> QGroupBox:
         group = QGroupBox("Interpolation and summation")
-        form = QFormLayout(group)
+        form = _form_layout(group)
 
         self.window_spin = QSpinBox()
         self.window_spin.setRange(0, 50)
@@ -188,7 +208,7 @@ class ScattyConfigForm(QWidget):
 
     def _build_options_group(self) -> QGroupBox:
         group = QGroupBox("Options")
-        form = QFormLayout(group)
+        form = _form_layout(group)
 
         self.remove_bragg_combo = QComboBox()
         self.remove_bragg_combo.addItems([_NONE, *get_args(Centring)])
@@ -208,7 +228,7 @@ class ScattyConfigForm(QWidget):
 
     def _build_image_group(self) -> QGroupBox:
         group = QGroupBox("Image / Bragg output")
-        form = QFormLayout(group)
+        form = _form_layout(group)
 
         self.supercell_cb = QCheckBox("SUPERCELL_BRAGG_OUTPUT (VTK file)")
         form.addRow("", self.supercell_cb)

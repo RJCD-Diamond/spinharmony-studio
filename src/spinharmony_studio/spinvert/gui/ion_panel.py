@@ -5,7 +5,7 @@ MagneticIon, per the J0/J2 form-factor tables in form_factors.py.
 import math
 import re
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -91,8 +91,15 @@ class IonPanel(QGroupBox):
         self.uiso_box = QDoubleSpinBox()
         self.uiso_box.setRange(0, 1e6)
         self.uiso_box.setDecimals(6)
+        self.uiso_box.setFixedWidth(70)
 
         form = QFormLayout()
+        # macOS centers QFormLayout and grows fields to fill leftover space
+        # by default (unlike Linux/Windows); force a left-aligned grid so
+        # this matches the rest of the configuration panel.
+        form.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.FieldsStayAtSizeHint)
         form.addRow("Ion", self.ion_combo)
         form.addRow("", self.quenched_checkbox)
         form.addRow("Term symbol", self.term_symbol_label)
