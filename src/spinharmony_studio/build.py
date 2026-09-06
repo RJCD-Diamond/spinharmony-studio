@@ -282,6 +282,58 @@ def download_spinharmony(
     return spinvert_zip, scatty_zip, spinteract_zip
 
 
+def find_instructions_pdf(extract_to: str | Path) -> Path | None:
+    """
+    Find the top-level instructions PDF in an unpacked SpinHarmony archive.
+
+    Each archive ships one "how to use this" PDF alongside its ``programs``/
+    ``source`` folder. Two things can be mistaken for it: macOS's
+    ``__MACOSX`` sidecar folder of tiny AppleDouble stub files with the same
+    names, and (for spinteract) an unrelated PDF nested under the bundled
+    minuit library's own doc folder. Both are excluded; among what's left,
+    a filename containing "instructions" wins, falling back to the
+    shallowest match if none does.
+    """
+    extract_to = Path(extract_to)
+    candidates = [
+        p
+        for p in extract_to.rglob("*.pdf")
+        if "__MACOSX" not in p.parts and not p.name.startswith("._")
+    ]
+    if not candidates:
+        return None
+    instructions = [p for p in candidates if "instruction" in p.name.lower()]
+    pool = instructions or candidates
+    return min(pool, key=lambda p: (len(p.parts), p.name))
+
+
+def find_program_instructions_pdf(
+    program_name: str, app_location: str | Path | None = None
+) -> Path | None:
+    """
+    Find ``program_name``'s instructions PDF among the archives already
+    unpacked into ``app_location`` (defaults to ``app_data_dir()``).
+
+    Every SpinHarmony archive extracts to a top-level folder named after the
+    program (e.g. "spinvert_18Mar19exe"); this looks for one starting with
+    ``program_name`` and searches its subtree (see ``find_instructions_pdf``).
+    No separate setting to persist - it's derived straight from what's
+    already on disk from a previous download/build.
+    """
+    if app_location is None:
+        app_location = app_data_dir()
+    app_location = Path(app_location)
+    if not app_location.is_dir():
+        return None
+    prefix = program_name.lower()
+    for child in sorted(app_location.iterdir()):
+        if child.is_dir() and child.name.lower().startswith(prefix):
+            pdf = find_instructions_pdf(child)
+            if pdf is not None:
+                return pdf
+    return None
+
+
 def build_spinvert(zip_path: str | Path) -> dict[str, Path]:
     """Unzip and build spinvert; returns {"spinvert": ..., "spincorrel": ...}."""
     extract_to = unpack(zip_path)

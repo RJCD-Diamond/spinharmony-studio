@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from spinharmony_studio.build import gfortran_available
+from spinharmony_studio.build import find_program_instructions_pdf, gfortran_available
 from spinharmony_studio.settings import (
     load_last_session,
     load_scatty_path,
@@ -152,12 +152,6 @@ class MainWindow(QMainWindow):
         status_bar = self.statusBar()
         assert status_bar is not None
         status_bar.addWidget(self.status_label)
-        self.exe_status_label = QLabel()
-        status_bar.addPermanentWidget(self.exe_status_label)
-        self.correl_status_label = QLabel()
-        status_bar.addPermanentWidget(self.correl_status_label)
-        self.scatty_status_label = QLabel()
-        status_bar.addPermanentWidget(self.scatty_status_label)
 
         # Restore the external-program paths chosen in a previous session.
         self._set_spinvert_path(load_spinvert_path() or "", persist=False)
@@ -219,19 +213,11 @@ class MainWindow(QMainWindow):
         file_menu = menu_bar.addMenu("&File")
         assert file_menu is not None
         self._add_action(
-            file_menu, "Set spinvert &executable...", self._browse_executable
-        )
-        self._add_action(
-            file_menu, "Set spin&correl executable...", self._browse_spincorrel
-        )
-        self._add_action(file_menu, "Set sca&tty executable...", self._browse_scatty)
-        file_menu.addSeparator()
-        self._add_action(
             file_menu, "Scatty &configuration window...", self._open_scatty_window
         )
         file_menu.addSeparator()
-        self._add_action(file_menu, "&Save config", self._save_config, "Ctrl+S")
         self._add_action(file_menu, "&Load config", self._load_config, "Ctrl+O")
+        self._add_action(file_menu, "&Save config", self._save_config, "Ctrl+S")
         self._add_action(file_menu, "&View config file", self._view_config)
         self._add_action(
             file_menu, "Clear &generated files", self._clear_generated_files
@@ -253,6 +239,28 @@ class MainWindow(QMainWindow):
         self._add_action(edit_menu, "&Copy output", self._copy_log, "Ctrl+Shift+C")
         self._add_action(edit_menu, "Clear &output", self._clear_log)
 
+        executables_menu = menu_bar.addMenu("&Executables")
+        assert executables_menu is not None
+        self._add_action(
+            executables_menu,
+            "Set spinvert &executable...",
+            self._browse_executable,
+        )
+        self._add_action(
+            executables_menu,
+            "Set spin&correl executable...",
+            self._browse_spincorrel,
+        )
+        self._add_action(
+            executables_menu, "Set sca&tty executable...", self._browse_scatty
+        )
+        executables_menu.addSeparator()
+        self._add_action(
+            executables_menu,
+            "&Show configured paths...",
+            self._show_executable_paths,
+        )
+
         view_menu = menu_bar.addMenu("&View")
         assert view_menu is not None
         self.toggle_config_action = QAction("Show &configuration panel", self)
@@ -271,6 +279,22 @@ class MainWindow(QMainWindow):
 
         help_menu = menu_bar.addMenu("&Help")
         assert help_menu is not None
+        self._add_action(
+            help_menu,
+            "spinvert / spincorrel instructions (PDF)",
+            lambda: self._open_program_pdf("spinvert", "spinvert instructions"),
+        )
+        self._add_action(
+            help_menu,
+            "scatty instructions (PDF)",
+            lambda: self._open_program_pdf("scatty", "scatty instructions"),
+        )
+        self._add_action(
+            help_menu,
+            "spinteract instructions (PDF)",
+            lambda: self._open_program_pdf("spinteract", "spinteract instructions"),
+        )
+        help_menu.addSeparator()
         self._add_action(help_menu, "&About Spinvert Studio", self._show_about)
 
     def _add_action(self, menu, text, slot, shortcut: str | None = None) -> QAction:
@@ -281,11 +305,45 @@ class MainWindow(QMainWindow):
         menu.addAction(action)
         return action
 
+    def _show_executable_paths(self) -> None:
+        def line(label: str, path: str) -> str:
+            return f"{label}: {path}" if path else f"{label}: not set"
+
+        QMessageBox.information(
+            self,
+            "Configured executable paths",
+            "\n".join(
+                [
+                    line("spinvert", self._spinvert_path),
+                    line("spincorrel", self._spincorrel_path),
+                    line("scatty", self._scatty_path),
+                ]
+            ),
+        )
+
     def _copy_log(self) -> None:
         self.output_log.copy_all()
 
     def _clear_log(self) -> None:
         self.output_log.clear()
+
+    def _open_program_pdf(self, program_name: str, label: str) -> None:
+        pdf = find_program_instructions_pdf(program_name)
+        if pdf is None:
+            QMessageBox.warning(
+                self,
+                f"No {label} PDF",
+                f"No {label} PDF was found. It's located automatically "
+                "alongside the downloaded program, so run the automatic "
+                "SpinHarmony setup first.",
+            )
+            return
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(pdf))):
+            QMessageBox.warning(
+                self,
+                "Could not open",
+                f"The operating system could not open {pdf} in a PDF viewer.",
+            )
 
     def _show_about(self) -> None:
         QMessageBox.about(
@@ -377,11 +435,6 @@ class MainWindow(QMainWindow):
 
     def _set_spinvert_path(self, path: str, persist: bool) -> None:
         self._spinvert_path = path.strip()
-        self.exe_status_label.setText(
-            f"spinvert: {self._spinvert_path}"
-            if self._spinvert_path
-            else "spinvert: not set"
-        )
         if persist and self._spinvert_path:
             try:
                 where = save_spinvert_path(self._spinvert_path)
@@ -513,9 +566,6 @@ class MainWindow(QMainWindow):
 
     def _set_scatty_path(self, path: str, persist: bool) -> None:
         self._scatty_path = path.strip()
-        self.scatty_status_label.setText(
-            f"scatty: {self._scatty_path}" if self._scatty_path else "scatty: not set"
-        )
         if persist and self._scatty_path:
             try:
                 where = save_scatty_path(self._scatty_path)
@@ -558,11 +608,6 @@ class MainWindow(QMainWindow):
 
     def _set_spincorrel_path(self, path: str, persist: bool) -> None:
         self._spincorrel_path = path.strip()
-        self.correl_status_label.setText(
-            f"spincorrel: {self._spincorrel_path}"
-            if self._spincorrel_path
-            else "spincorrel: not set"
-        )
         if persist and self._spincorrel_path:
             try:
                 where = save_spincorrel_path(self._spincorrel_path)
