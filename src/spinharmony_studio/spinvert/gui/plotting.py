@@ -11,7 +11,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 from matplotlib.axes import Axes
-from matplotlib.typing import LegendLocType
+
+# from matplotlib.typing import LegendLocType
 
 Vector = np.ndarray
 XYEData = tuple[Vector, Vector, Vector]  # x, y, y-error
@@ -53,7 +54,7 @@ class PlotStyle:
     zero_line: bool = True
     zero_line_color: str = "0.6"
     zero_line_width: float = 1.0
-    legend_loc: LegendLocType = "best"
+    legend_loc: str = "best"
 
     intensity_xlabel: str = "Q"
     intensity_ylabel: str = "Intensity (barns/sr/Atom)"
@@ -126,7 +127,7 @@ def draw_data_and_fit(
         )
         drew = True
     if drew:
-        ax_top.legend(loc=style.legend_loc)
+        ax_top.legend(loc=style.legend_loc)  # type: ignore
 
     draw_difference(ax_bottom, data, fit, style=style)
 
@@ -186,4 +187,4 @@ def draw_correlation(
         style.correlation,
         label or style.correlation_label,
     )
-    ax.legend(loc=style.legend_loc)
+    ax.legend(loc=style.legend_loc)  # type: ignore
