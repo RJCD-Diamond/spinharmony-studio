@@ -129,8 +129,6 @@ class ScattyWindow(QMainWindow):
         status_bar = self.statusBar()
         assert status_bar is not None
         status_bar.addWidget(self.status_label)
-        self.scatty_status_label = QLabel()
-        status_bar.addPermanentWidget(self.scatty_status_label)
 
         self._set_scatty_path(load_scatty_path() or "", persist=False)
 
@@ -194,8 +192,6 @@ class ScattyWindow(QMainWindow):
 
         file_menu = menu_bar.addMenu("&File")
         assert file_menu is not None
-        self._add_action(file_menu, "Set sca&tty executable...", self._browse_scatty)
-        file_menu.addSeparator()
         self._add_action(file_menu, "&Save config", self._save_config, "Ctrl+S")
         self._add_action(file_menu, "&Load config", self._load_config, "Ctrl+O")
         self._add_action(file_menu, "&View config file", self._view_config)
@@ -214,6 +210,18 @@ class ScattyWindow(QMainWindow):
             edit_menu, "&Copy output", self.output_log.copy_all, "Ctrl+Shift+C"
         )
         self._add_action(edit_menu, "Clear &output", self.output_log.clear)
+
+        executables_menu = menu_bar.addMenu("&Executables")
+        assert executables_menu is not None
+        self._add_action(
+            executables_menu, "Set sca&tty executable...", self._browse_scatty
+        )
+        executables_menu.addSeparator()
+        self._add_action(
+            executables_menu,
+            "&Show configured paths...",
+            self._show_executable_paths,
+        )
 
         view_menu = menu_bar.addMenu("&View")
         assert view_menu is not None
@@ -322,9 +330,6 @@ class ScattyWindow(QMainWindow):
 
     def _set_scatty_path(self, path: str, persist: bool) -> None:
         self._scatty_path = path.strip()
-        self.scatty_status_label.setText(
-            f"scatty: {self._scatty_path}" if self._scatty_path else "scatty: not set"
-        )
         if persist and self._scatty_path:
             try:
                 where = save_scatty_path(self._scatty_path)
@@ -337,6 +342,13 @@ class ScattyWindow(QMainWindow):
             else:
                 self._append_log(f"Saved scatty executable path to {where}\n")
 
+    def _show_executable_paths(self) -> None:
+        QMessageBox.information(
+            self,
+            "Configured executable paths",
+            f"scatty: {self._scatty_path}" if self._scatty_path else "scatty: not set",
+        )
+
     def _verify_executable_configured(self) -> None:
         if not self._scatty_path:
             QMessageBox.warning(
@@ -344,7 +356,8 @@ class ScattyWindow(QMainWindow):
                 "scatty executable not set",
                 "No scatty executable is configured "
                 f"(nothing saved in {settings_file()}).\n\n"
-                "Choose it via  File → “Set scatty executable…”  before running.",
+                "Choose it via  Executables → “Set scatty executable…”  "
+                "before running.",
             )
         elif resolve_executable(self._scatty_path) is None:
             QMessageBox.warning(

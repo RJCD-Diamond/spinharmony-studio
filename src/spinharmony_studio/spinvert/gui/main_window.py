@@ -808,12 +808,11 @@ class MainWindow(QMainWindow):
             )
             return
 
-        listing = "\n".join(f"    {p.name}" for p in files)
         reply = QMessageBox.question(
             self,
             "Delete generated files?",
-            f"Permanently delete these {len(files)} file(s) that spinvert "
-            f"generated for {title!r}?\n\n{listing}\n\n"
+            f"Permanently delete the {len(files)} file(s) that spinvert "
+            f"generated for {title!r}?\n\n"
             "The input files ([title]_data.txt and [title]_config.txt) are kept. "
             "This cannot be undone.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
