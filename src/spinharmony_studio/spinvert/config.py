@@ -357,5 +357,3 @@ if __name__ == "__main__":
         SCALE="REFINE",
     )
     print(example.model_dump_json(indent=2, by_alias=True))
-
-    example.save_to_file("/workspaces/spinharmony_studio/src/example_config.txt")
