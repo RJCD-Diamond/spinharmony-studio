@@ -6,6 +6,7 @@ import platform
 import shutil
 from collections.abc import Callable
 from pathlib import Path
+from typing import Literal
 
 from PyQt6.QtWidgets import QMessageBox, QWidget
 
@@ -17,6 +18,38 @@ def resolve_executable(text: str) -> str | None:
     if candidate.is_file():
         return str(candidate)
     return shutil.which(text)
+
+
+# Mach-O magic bytes -> byte order of the file's own header fields. Covers
+# both single-arch Mach-O and universal/fat binaries.
+_MACHO_MAGICS: dict[bytes, Literal["little", "big"]] = {
+    b"\xfe\xed\xfa\xce": "big",  # MH_MAGIC (32-bit)
+    b"\xce\xfa\xed\xfe": "little",  # MH_CIGAM (32-bit)
+    b"\xfe\xed\xfa\xcf": "big",  # MH_MAGIC_64
+    b"\xcf\xfa\xed\xfe": "little",  # MH_MAGIC_64 (Intel/Apple Silicon Macs)
+}
+_MACHO_FAT_MAGICS = {b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca"}
+_MACHO_CPU_TYPES = {
+    0x00000007: "x86 (32-bit)",
+    0x01000007: "x86-64",
+    0x0000000C: "ARM (32-bit)",
+    0x0100000C: "AArch64",
+}
+
+
+def _macho_arch(head: bytes) -> str | None:
+    """
+    If ``head`` starts with a Mach-O magic number, return the CPU
+    architecture it's built for (or "universal" for a fat binary covering
+    multiple), else None.
+    """
+    if head[:4] in _MACHO_FAT_MAGICS:
+        return "universal"
+    byteorder = _MACHO_MAGICS.get(head[:4])
+    if byteorder is None:
+        return None
+    cputype = int.from_bytes(head[4:8], byteorder)
+    return _MACHO_CPU_TYPES.get(cputype, f"machine 0x{cputype:x}")
 
 
 def diagnose_executable(path: str) -> str | None:
@@ -64,6 +97,21 @@ def diagnose_executable(path: str) -> str | None:
         if expected and expected != elf_arch:
             return (
                 f"{path} is an ELF binary for {elf_arch}, but this machine is "
+                f"{host}. You need a binary built for {host}."
+            )
+        return None
+    macho_arch = _macho_arch(head)
+    if macho_arch is not None:
+        host = platform.machine()
+        expected = {
+            "x86_64": "x86-64",
+            "amd64": "x86-64",
+            "aarch64": "AArch64",
+            "arm64": "AArch64",
+        }.get(host.lower())
+        if expected and macho_arch not in (expected, "universal"):
+            return (
+                f"{path} is a macOS binary for {macho_arch}, but this machine is "
                 f"{host}. You need a binary built for {host}."
             )
         return None
