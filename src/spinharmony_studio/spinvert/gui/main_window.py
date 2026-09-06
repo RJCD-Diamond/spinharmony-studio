@@ -1067,5 +1067,9 @@ def run_spinharmony(args: Sequence[str] | None = None) -> None:
     sys.exit(app.exec())
 
 
+# The "spinvert-gui" console script (pyproject.toml) points at this name.
+main = run_spinharmony
+
+
 if __name__ == "__main__":
     run_spinharmony()

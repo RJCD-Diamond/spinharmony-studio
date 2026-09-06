@@ -2534,6 +2534,7 @@ wheels = [
 name = "spinharmony-studio"
 source = { editable = "." }
 dependencies = [
+    { name = "click" },
     { name = "h5py" },
     { name = "matplotlib" },
     { name = "mendeleev" },
@@ -2562,6 +2563,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "click" },
     { name = "h5py" },
     { name = "matplotlib" },
     { name = "mendeleev" },
