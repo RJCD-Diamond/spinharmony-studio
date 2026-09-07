@@ -71,6 +71,8 @@ addopts = """
 filterwarnings = [
     "error",
     "ignore::ResourceWarning:sqlite3",
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+
 ] #had to add this to avoid sqlite3 warnings
 # Doctest python code in docs, python code in src docstrings, test functions in tests
 testpaths = "docs src tests"
